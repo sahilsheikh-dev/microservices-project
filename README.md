@@ -59,8 +59,7 @@ docker-compose -f local-docker-compose.yml up --build
 # Or run in detached mode
 docker-compose -f local-docker-compose.yml up -d
 
-# more commands
-docker-compose -f local-docker-compose.yml up
+# To stop containers and remove containers, networks, volumes, and images created by up
 docker-compose -f local-docker-compose.yml down
 ```
 
@@ -74,8 +73,7 @@ Pull and run the services directly using Docker Hub images:
 docker-compose -f hub-docker-compose.yml pull
 docker-compose -f hub-docker-compose.yml up -d
 
-# more commands
-docker-compose -f hub-docker-compose.yml up
+# To stop containers and remove containers, networks, volumes, and images created by up
 docker-compose -f hub-docker-compose.yml down
 ```
 
