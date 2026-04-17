@@ -1,5 +1,5 @@
-version: '3.8'
-name: user-journal-microservice-project
+
+version: "3.8"
 
 services:
   zookeeper:
@@ -7,22 +7,25 @@ services:
     container_name: zookeeper
     restart: always
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+    mem_limit: 256m
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.5.1
     container_name: kafka
     restart: always
     depends_on:
       - zookeeper
     environment:
-      KAFKA_BROKER_ID: 1
+      KAFKA_BROKER_ID: "1"
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
     ports:
       - "9092:9092"
+    mem_limit: 768m
 
   mysql-user:
     image: mysql:8.0
@@ -42,9 +45,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 512m
 
   mongodb-journal:
-    image: mongo:latest
+    image: mongo:6
     container_name: mongodb-journal
     restart: always
     ports:
@@ -53,6 +57,7 @@ services:
       DB_URI: mongodb://root:rootpassword@mongodb-journal:27017/journaldb?authSource=admin
     volumes:
       - journaldb-data:/data/db
+    mem_limit: 512m
 
   user-service:
     build:
@@ -66,17 +71,19 @@ services:
     ports:
       - "8081:8081"
     environment:
-      SERVER_PORT: 8081
-      DB_URL: jdbc:mysql://mysql-user:3306/userdb
+      SERVER_PORT: "8081"
+      DB_URL: jdbc:mysql://mysql-user:3306/userservice
       DB_USERNAME: root
       DB_PASSWORD: root
-      HIBERNATE_FORMAT_SQL: true
-      SHOW_SQL: false
+      HIBERNATE_FORMAT_SQL: "true"
+      SHOW_SQL: "false"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TOPIC_USER_CREATED: user-events
       TOPIC_USER_FAILED: user-operation-failed
       JWT_SECRET: w3nFB9T2zYlT5hUvDdDmcJ9U7NfFcEYbAKtqucCiwgKaVZTjhS3lmA3FlCJeJXJf
-      JWT_EXPIRATION: 3600000
+      JWT_EXPIRATION: "3600000"
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx256m"
+    mem_limit: 512m
 
   journal-service:
     build:
@@ -87,20 +94,21 @@ services:
     depends_on:
       - mongodb-journal
       - kafka
-      - user-service
     ports:
       - "8082:8082"
     environment:
-      SERVER_PORT: 8082
+      SERVER_PORT: "8082"
       DB_URI: mongodb://mongodb-journal:27017/journalservice
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GROUP_ID: journal-service-group
       TOPIC_USER_CREATED: user-events
       TOPIC_USER_FAILED: user-operation-failed
       JWT_SECRET: w3nFB9T2zYlT5hUvDdDmcJ9U7NfFcEYbAKtqucCiwgKaVZTjhS3lmA3FlCJeJXJf
-      JWT_EXPIRATION: 3600000
+      JWT_EXPIRATION: "3600000"
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: admin123
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx256m"
+    mem_limit: 512m
 
 volumes:
   userdb-data:
