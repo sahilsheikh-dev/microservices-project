@@ -14,14 +14,6 @@ import java.util.List;
 import java.util.function.Supplier;
 
 @RestController
-public class HealthController {
-    @GetMapping("/")
-    public String health() {
-        return "User Service is running";
-    }
-}
-
-@RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
 public class UserController {
