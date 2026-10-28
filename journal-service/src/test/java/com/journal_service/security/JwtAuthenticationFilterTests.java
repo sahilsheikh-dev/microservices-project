@@ -47,6 +47,15 @@ class JwtAuthenticationFilterTests {
     }
 
     @Test
+    void doFilterInternal_adminEmailWithUserRole_doesNotGrantAdmin() throws Exception {
+        assertContinues(token("user-service", Instant.now().plusSeconds(60),
+                "admin@example.com", "ROLE_USER"), true);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting("authority").containsExactly("ROLE_USER");
+    }
+
+    @Test
     void doFilterInternal_expiredJwt_continuesUnauthenticated() throws Exception {
         assertContinues(token("user-service", Instant.now().minusSeconds(1)), false);
     }
@@ -89,12 +98,16 @@ class JwtAuthenticationFilterTests {
     }
 
     private String token(String issuer, Instant expiresAt) {
+        return token(issuer, expiresAt, "claim@example.com", "ROLE_USER");
+    }
+
+    private String token(String issuer, Instant expiresAt, String email, String role) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .setIssuer(issuer)
                 .setSubject("7")
-                .claim("email", "claim@example.com")
-                .claim("roles", List.of("ROLE_USER"))
+                .claim("email", email)
+                .claim("roles", List.of(role))
                 .setIssuedAt(Date.from(now))
                 .setExpiration(Date.from(expiresAt))
                 .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS512)

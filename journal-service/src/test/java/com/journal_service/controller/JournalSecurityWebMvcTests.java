@@ -49,6 +49,11 @@ class JournalSecurityWebMvcTests {
     @Test
     void protectedJournalEndpoints_anonymousUserRoleAndAdmin_enforceAuthorization() throws Exception {
         List<String> paths = List.of("/api/journals", "/api/journals/user/12", "/api/journals/abc");
+        when(journalService.getAllJournals(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(journalService.getJournalsByUserId(eq(12L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(journalService.getJournalById("abc")).thenReturn(Journal.builder().id("abc").build());
+
         for (String path : paths) {
             mockMvc.perform(get(path)).andExpect(status().isUnauthorized());
             mockMvc.perform(get(path).header("Authorization", bearer(7L, "admin@example.com", "USER")))
@@ -59,10 +64,6 @@ class JournalSecurityWebMvcTests {
                         .header("Authorization", bearer(7L, "admin@example.com", "USER")))
                 .andExpect(status().isForbidden());
 
-        when(journalService.getAllJournals(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
-        when(journalService.getJournalsByUserId(eq(12L), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of()));
-        when(journalService.getJournalById("abc")).thenReturn(Journal.builder().id("abc").build());
         for (String path : paths) {
             mockMvc.perform(get(path).header("Authorization", bearer(1L, "admin@example.com", "ADMIN")))
                     .andExpect(status().isOk());

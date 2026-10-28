@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.user_service.entity.User;
 import com.user_service.repository.UserRepository;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -33,6 +36,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,15 +58,31 @@ class UserServiceIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
+        String bootstrapServers = kafka.getBootstrapServers();
+        createTopic(bootstrapServers);
         registry.add("spring.datasource.url", mysql::getJdbcUrl);
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("spring.kafka.bootstrap-servers", () -> bootstrapServers);
         registry.add("app.kafka.topic.userCreated", () -> TOPIC);
         registry.add("app.jwt.secret", () -> "0123456789012345678901234567890123456789012345678901234567890123");
         registry.add("app.bootstrap-admin.email", () -> "");
         registry.add("app.bootstrap-admin.password", () -> "");
+    }
+
+    private static void createTopic(String bootstrapServers) {
+        Properties properties = new Properties();
+        properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        try (AdminClient admin = AdminClient.create(properties)) {
+            admin.createTopics(List.of(new NewTopic(TOPIC, 3, (short) 1)))
+                    .all().get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while creating the Kafka test topic.", ex);
+        } catch (ExecutionException | TimeoutException ex) {
+            throw new IllegalStateException("Could not create the Kafka test topic.", ex);
+        }
     }
 
     @LocalServerPort
@@ -101,7 +123,7 @@ class UserServiceIT {
         ResponseEntity<JsonNode> response = restTemplate.postForEntity(
                 "http://localhost:" + port + "/api/users",
                 new HttpEntity<>("{\"name\":\"Integration User\",\"email\":\"" + email
-                        + "\",\"password\":\"integration-password\"}", headers),
+                        + "\",\"password\":\"integration-password\",\"roles\":\"ADMIN\"}", headers),
                 JsonNode.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);

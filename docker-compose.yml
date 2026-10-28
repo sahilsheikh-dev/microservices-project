@@ -19,6 +19,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m"
     volumes:
       - kafka-data:/var/lib/kafka/data
@@ -29,6 +30,19 @@ services:
       retries: 10
       start_period: 30s
     mem_limit: 768m
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic user-events --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic user-operation-failed --partitions 1 --replication-factor 1
 
   mysql-user:
     image: mysql:8.0
@@ -79,6 +93,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     ports:
       - "8081:8081"
     environment:
@@ -111,6 +127,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     ports:
       - "8082:8082"
     environment:

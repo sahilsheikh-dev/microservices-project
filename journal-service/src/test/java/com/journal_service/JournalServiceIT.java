@@ -2,6 +2,9 @@ package com.journal_service;
 
 import com.journal_service.entity.Journal;
 import com.journal_service.repository.JournalRepository;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -20,8 +23,11 @@ import org.testcontainers.utility.DockerImageName;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -40,11 +46,29 @@ class JournalServiceIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
+        String bootstrapServers = kafka.getBootstrapServers();
+        createTopics(bootstrapServers);
         registry.add("spring.data.mongodb.uri", mongo::getReplicaSetUrl);
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("spring.kafka.bootstrap-servers", () -> bootstrapServers);
         registry.add("app.kafka.topic.userCreated", () -> TOPIC);
         registry.add("app.kafka.topic.deadLetter", () -> "user-events-dead-letter");
         registry.add("app.jwt.secret", () -> "0123456789012345678901234567890123456789012345678901234567890123");
+    }
+
+    private static void createTopics(String bootstrapServers) {
+        Properties properties = new Properties();
+        properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        try (AdminClient admin = AdminClient.create(properties)) {
+            admin.createTopics(List.of(
+                    new NewTopic(TOPIC, 3, (short) 1),
+                    new NewTopic("user-events-dead-letter", 1, (short) 1)))
+                    .all().get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while creating the Kafka test topics.", ex);
+        } catch (ExecutionException | TimeoutException ex) {
+            throw new IllegalStateException("Could not create the Kafka test topics.", ex);
+        }
     }
 
     @Autowired
