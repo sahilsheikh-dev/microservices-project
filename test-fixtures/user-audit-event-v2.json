@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "eventId": "f9e48eae-d4a3-4f2b-8c95-b9fb359101a2",
+  "occurredAt": "2026-10-28T10:00:00Z",
+  "operation": "CREATE",
+  "status": "SUCCESS",
+  "comment": "User created",
+  "userId": 12,
+  "userName": "Jane",
+  "userEmail": "jane@example.com",
+  "userRole": "USER"
+}

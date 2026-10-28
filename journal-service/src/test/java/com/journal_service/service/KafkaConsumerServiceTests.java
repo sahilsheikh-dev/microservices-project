@@ -12,6 +12,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,12 +34,7 @@ class KafkaConsumerServiceTests {
 
     @Test
     void consume_v2Event_savesMappedJournal() throws Exception {
-        String json = """
-                {"schemaVersion":2,"eventId":"f9e48eae-d4a3-4f2b-8c95-b9fb359101a2",
-                 "occurredAt":"2026-10-28T10:00:00Z","operation":"CREATE","status":"SUCCESS",
-                 "comment":"User created","userId":12,"userName":"Jane",
-                 "userEmail":"jane@example.com","userRole":"USER"}
-                """;
+        String json = Files.readString(Path.of("..", "test-fixtures", "user-audit-event-v2.json"));
         consumer.consume(json, 1_798_000_000_000L);
 
         ArgumentCaptor<Journal> journal = ArgumentCaptor.forClass(Journal.class);
@@ -45,6 +42,7 @@ class KafkaConsumerServiceTests {
         assertThat(journal.getValue().getEventId()).isEqualTo("f9e48eae-d4a3-4f2b-8c95-b9fb359101a2");
         assertThat(journal.getValue().getUserId()).isEqualTo(12L);
         assertThat(journal.getValue().getOperationTime()).isEqualTo(Instant.parse("2026-10-28T10:00:00Z"));
+        assertThat(json).doesNotContain("password");
     }
 
     @Test
@@ -63,9 +61,9 @@ class KafkaConsumerServiceTests {
     }
 
     @Test
-    void consume_missingStatus_rejectsEvent() {
+    void consume_missingOperation_rejectsEvent() {
         assertThatThrownBy(() -> consumer.consume(
-                "{\"schemaVersion\":2,\"eventId\":\"abc\",\"operation\":\"CREATE\"}", 100L))
+                "{\"schemaVersion\":2,\"eventId\":\"abc\",\"status\":\"SUCCESS\"}", 100L))
                 .isInstanceOf(InvalidEventException.class);
         verifyNoInteractions(journalService);
     }
@@ -74,14 +72,17 @@ class KafkaConsumerServiceTests {
     void consume_duplicateEventId_skipsDuplicate() throws Exception {
         doThrow(new DuplicateKeyException("duplicate"))
                 .when(journalService).saveFromEvent(any(Journal.class));
-        String json = """
-                {"schemaVersion":2,"eventId":"f9e48eae-d4a3-4f2b-8c95-b9fb359101a2",
-                 "occurredAt":"2026-10-28T10:00:00Z","operation":"CREATE","status":"SUCCESS",
-                 "userId":12}
-                """;
+        String json = Files.readString(Path.of("..", "test-fixtures", "user-audit-event-v2.json"));
 
         consumer.consume(json, 1_798_000_000_000L);
 
         verify(journalService).saveFromEvent(any(Journal.class));
+    }
+
+    @Test
+    void consume_malformedJson_throwsNonRetryableJsonException() {
+        assertThatThrownBy(() -> consumer.consume("{", 100L))
+                .isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+        verifyNoInteractions(journalService);
     }
 }
