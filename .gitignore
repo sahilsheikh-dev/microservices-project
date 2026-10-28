@@ -1,4 +1,46 @@
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
+
+# Maven build output (all services)
 **/target/
+
+# Maven Wrapper
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE - IntelliJ IDEA
 .idea/
 *.iml
+*.iws
+*.ipr
+out/
+
+# IDE - Spring Tool Suite / Eclipse
+.apt_generated/
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+# IDE - NetBeans
+**/nbproject/private/
+**/nbbuild/
+**/dist/
+**/nbdist/
+**/.nb-gradle/
+
+# IDE - VS Code
+.vscode/
+
+# Gradle build output
+**/build/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
