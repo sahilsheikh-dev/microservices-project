@@ -1,0 +1,22 @@
+services:
+  kafka:
+    ports:
+      - "127.0.0.1:29092:29092"
+  mysql-user:
+    ports:
+      - "127.0.0.1:3307:3306"
+  mongodb-journal:
+    ports:
+      - "127.0.0.1:27018:27017"
+  user-service:
+    image: user-service:local
+    build:
+      context: ./user-service
+    environment:
+      SWAGGER_ENABLED: "true"
+  journal-service:
+    image: journal-service:local
+    build:
+      context: ./journal-service
+    environment:
+      SWAGGER_ENABLED: "true"

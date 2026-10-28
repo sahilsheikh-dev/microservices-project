@@ -1,0 +1,136 @@
+name: microservices
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.5.1
+    container_name: kafka
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    mem_limit: 768m
+
+  mysql-user:
+    image: mysql:8.0
+    container_name: mysql-user
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: userdb
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD}
+    volumes:
+      - userdb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 512m
+
+  mongodb-journal:
+    image: mongo:6
+    container_name: mongodb-journal
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: journaldb
+      MONGO_APP_USER: journalapp
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD}
+    volumes:
+      - journaldb-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 512m
+
+  user-service:
+    image: sahilsheikhdev/user-service:${IMAGE_TAG:-latest}
+    container_name: user-service
+    restart: unless-stopped
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: "8081"
+      DB_URL: jdbc:mysql://mysql-user:3306/userdb
+      DB_USERNAME: appuser
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD}
+      DDL_AUTO: ${USER_DDL_AUTO:-update}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TOPIC_USER_CREATED: user-events
+      TOPIC_USER_FAILED: user-operation-failed
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      JWT_EXPIRATION: "3600000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    mem_limit: 640m
+
+  journal-service:
+    image: sahilsheikhdev/journal-service:${IMAGE_TAG:-latest}
+    container_name: journal-service
+    restart: unless-stopped
+    depends_on:
+      mongodb-journal:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    environment:
+      SERVER_PORT: "8082"
+      DB_URI: mongodb://journalapp:${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD}@mongodb-journal:27017/journaldb?authSource=journaldb
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: journal-service-group
+      TOPIC_USER_CREATED: user-events
+      TOPIC_USER_FAILED: user-operation-failed
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      JWT_EXPIRATION: "3600000"
+      ADMIN_EMAIL: ${JOURNAL_ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${JOURNAL_ADMIN_PASSWORD:?Set JOURNAL_ADMIN_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    mem_limit: 640m
+
+volumes:
+  kafka-data:
+  userdb-data:
+  journaldb-data:
