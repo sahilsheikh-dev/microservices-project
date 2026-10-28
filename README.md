@@ -50,13 +50,9 @@ Dependency versions are taken from the service POM files or the image tags in Co
 
 ## Prerequisites
 
-- Windows PowerShell for `dev.ps1`.
-- Docker Desktop with the Docker Compose v2 plugin.
-- Java 21 and Maven 3.9 or later for running the applications and tests on the host.
-- Docker Buildx and registry access for publishing images.
+- Docker with the Docker Compose v2 plugin.
+- Java 21 for running the applications on the host. The Maven wrapper is included, so Maven is not required.
 - Optional: MySQL Workbench or MongoDB Compass for local database inspection.
-
-The service directories include Maven wrapper scripts, but `dev.ps1` invokes `mvn` directly for host-mode services and tests.
 
 ## Repository structure
 
@@ -65,8 +61,9 @@ The tree below reflects the current workspace files.
 ```text
 .
 |-- .gitignore
+|-- .gitattributes
+|-- .env.example
 |-- README.md
-|-- dev.ps1
 |-- docker-compose.yml
 |-- docker-compose.local.yml
 |-- mongo-init/
@@ -121,19 +118,7 @@ The tree below reflects the current workspace files.
 
 ## Configuration
 
-Create a root `.env` file for Compose modes. Do not commit it. The repository does not include an `.env.example` file. Use unique, generated values in place of these placeholders:
-
-```dotenv
-MYSQL_ROOT_PASSWORD=<generated-mysql-root-password>
-MYSQL_APP_PASSWORD=<generated-mysql-application-password>
-MONGO_ROOT_PASSWORD=<generated-mongodb-root-password>
-MONGO_APP_PASSWORD=<generated-mongodb-application-password>
-JWT_SECRET=<generated-secret-at-least-64-bytes>
-JOURNAL_ADMIN_EMAIL=admin@example.com
-JOURNAL_ADMIN_PASSWORD=<generated-journal-admin-password>
-IMAGE_TAG=latest
-USER_DDL_AUTO=update
-```
+Copy `.env.example` to `.env` and fill in the required values. Keep `.env` out of version control. Generate a secret with `openssl rand -hex 32` (Linux/macOS/Git Bash) or `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell 7).
 
 `JWT_SECRET` is used with HMAC-SHA512 in both services and must be at least 64 bytes. The exact same value must be provided to both services. Compose inserts `MONGO_APP_PASSWORD` directly into a MongoDB URI; use a URI-safe password (hexadecimal characters are suitable) unless the URI value is encoded correctly.
 
@@ -143,7 +128,7 @@ The table lists variables interpolated by Compose or read by the application pro
 
 Compose mounts `mongo-init/01-create-user.js` into MongoDB's `/docker-entrypoint-initdb.d` directory. On first initialization of an empty MongoDB data volume, the script switches to `journaldb` and creates the application user using `MONGO_APP_USER` and `MONGO_APP_PASSWORD`, granting that user the `readWrite` role on `journaldb`. Compose sets `MONGO_APP_USER` to `journalapp` and supplies the password from the root `.env`. The journal service connects with that application account; the MongoDB root account is separate.
 
-MongoDB's initialization scripts are not rerun for an already-initialized data volume. If the application user was not created on first initialization, inspect the volume and credentials; resetting the stack with `.\dev.ps1 reset` deletes persisted database and Kafka data.
+MongoDB's initialization scripts are not rerun for an already-initialized data volume. If the application user was not created on first initialization, inspect the volume and credentials; `docker compose down -v` deletes persisted database and Kafka data.
 
 | Variable | Service or scope | Required? | Default | Purpose |
 |---|---|---:|---|---|
@@ -160,7 +145,7 @@ MongoDB's initialization scripts are not rerun for an already-initialized data v
 | `SERVER_PORT` | Both applications | No | `8081` user-service; `8082` journal-service | Application HTTP port. |
 | `DB_URL` | user-service | No | `jdbc:mysql://localhost:3307/userdb` | MySQL JDBC URL. Compose overrides it for the container network. |
 | `DB_USERNAME` | user-service | No | `appuser` | MySQL application username. |
-| `DB_PASSWORD` | user-service | Yes | None | MySQL application password. In Compose it is set from `MYSQL_APP_PASSWORD`. |
+| `DB_PASSWORD` | user-service | Yes | `MYSQL_APP_PASSWORD` | MySQL application password. Compose sets it from `MYSQL_APP_PASSWORD`; host runs use the same value from the root `.env`. |
 | `DDL_AUTO` | user-service | No | `update` | Hibernate schema behavior. Compose maps `USER_DDL_AUTO` to this variable. |
 | `SHOW_SQL` | user-service | No | `false` | Enables Hibernate SQL logging. |
 | `HIBERNATE_FORMAT_SQL` | user-service | No | `false` | Formats Hibernate SQL log output. |
@@ -168,52 +153,71 @@ MongoDB's initialization scripts are not rerun for an already-initialized data v
 | `LOG_LEVEL_SPRING` | Both applications | No | `warn` | Spring logging level. |
 | `LOG_LEVEL_SQL` | user-service | No | `warn` | Hibernate SQL logger level. |
 | `LOG_LEVEL_SQL_BIND` | user-service | No | `warn` | Hibernate JDBC bind logger level. |
-| `DB_URI` | journal-service | Yes | None | MongoDB connection URI. |
+| `DB_URI` | journal-service | Yes | Built from `MONGO_USERNAME`, `MONGO_APP_PASSWORD`, `MONGO_HOST`, and `MONGO_PORT` | MongoDB connection URI. Compose provides a container-network URI; host runs default to `journalapp@localhost:27018`. |
 | `KAFKA_BOOTSTRAP_SERVERS` | Both applications | No | `localhost:29092` | Kafka bootstrap address; both services need to reach the same broker. |
 | `GROUP_ID` | journal-service | No | `journal-service-group` | Kafka consumer group. |
 | `TOPIC_USER_CREATED` | Both applications | No | `user-events` | User-operation topic; it must match for the consumer to receive producer events. |
 | `TOPIC_USER_FAILED` | Both applications | No | `user-operation-failed` | Declared failure-topic configuration; the current producer and consumer do not use it. |
-| `SWAGGER_ENABLED` | Both applications | No | `false` | Enables or disables OpenAPI docs and Swagger UI. The local Compose overlay and host dev commands enable it. |
+| `SWAGGER_ENABLED` | Both applications | No | `false` | Enables or disables OpenAPI docs and Swagger UI. The local Compose overlay enables it; add `SWAGGER_ENABLED=true` to `.env` for host runs. |
 | `JWT_EXPIRATION` | Both applications | No | `3600000` milliseconds | JWT lifetime when that service issues a token. |
 | `ADMIN_EMAIL` | journal-service | No | `admin@example.com` | Email for the journal service's in-memory admin account. Compose maps `JOURNAL_ADMIN_EMAIL` here. |
-| `ADMIN_PASSWORD` | journal-service | Yes | None | Password for the journal service's in-memory admin account. Compose maps `JOURNAL_ADMIN_PASSWORD` here. |
+| `ADMIN_PASSWORD` | journal-service | Yes | `JOURNAL_ADMIN_PASSWORD` | Password for the journal service's in-memory admin account. Compose maps `JOURNAL_ADMIN_PASSWORD` here; host runs read it from the root `.env`. |
 
-For direct host runs, provide the required application variables yourself. The `dev.ps1 user` and `dev.ps1 journal` modes load the root `.env` and set the service-specific variables before starting Maven.
+Spring imports the root `.env` for host runs. The application properties fall back from `DB_PASSWORD` to `MYSQL_APP_PASSWORD`, from `DB_URI` to the MongoDB settings, and from `ADMIN_EMAIL`/`ADMIN_PASSWORD` to `JOURNAL_ADMIN_EMAIL`/`JOURNAL_ADMIN_PASSWORD`. For local host runs only, add `SWAGGER_ENABLED=true` to `.env`.
 
-## Run modes
+## Running the project
 
-Run these commands from the repository root in Windows PowerShell. Create `.env` before starting Compose; Compose requires its database, JWT, and journal-admin credentials.
+Requires Docker (Compose v2) and Java 21. The Maven wrapper is used, so Maven is not required.
+Run all commands from the repository root. Windows users use PowerShell.
 
-| Mode | Exact command | Use |
-|---|---|---|
-| `dev` infrastructure | `.\dev.ps1 infra` | Runs Kafka and the databases in Docker, stopping any containerized service instances. Then run `.\dev.ps1 user` and `.\dev.ps1 journal` in separate terminals to run the applications on the host. |
-| `dev` user application | `.\dev.ps1 user` | Starts user-service with host database/Kafka addresses, `.env` credentials, and Swagger enabled. |
-| `dev` journal application | `.\dev.ps1 journal` | Starts journal-service with host database/Kafka addresses, `.env` credentials, and Swagger enabled. |
-| `local` | `.\dev.ps1 local` | Recreates the Compose stack and builds both service images from the local Dockerfiles. |
-| `hub` | `.\dev.ps1 hub` | Pulls the configured published image tag and starts the Compose stack. |
-| Stop | `.\dev.ps1 down` | Stops and removes Compose containers and networks; named data volumes are retained. |
-| Logs | `.\dev.ps1 logs` | Follows Compose logs, showing the most recent 100 lines per service. |
-| Reset | `.\dev.ps1 reset` | After typing `yes`, stops the stack and removes named data volumes, deleting database and Kafka data. |
-| Tests | `.\dev.ps1 test` | Runs `mvn -B test` in each service directory. |
-| Publish | `.\dev.ps1 publish -Tag 1.0.1` | Builds and pushes both service images for `linux/amd64`, with the requested tag and `latest`. |
+Setup: copy `.env.example` to `.env` and fill every value.
+Generate a secret with `openssl rand -hex 32` (Linux/macOS/Git Bash) or
+`[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell 7).
 
-Only one mode should run at a time because the modes share container names and ports. The `hub` mode uses the base Compose file; `local` and `dev` infrastructure use the local overlay.
+### Dev mode (infrastructure in Docker, apps on your machine with hot reload)
 
-Plain Docker Compose equivalents:
+```bash
+docker compose stop user-service journal-service
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d kafka mysql-user mongodb-journal
 
-```powershell
-# Local build: all services in Docker
+# terminal 1                                  # terminal 2
+cd user-service && ./mvnw spring-boot:run     cd journal-service && ./mvnw spring-boot:run
+```
+Windows: use `.\mvnw.cmd spring-boot:run` instead of `./mvnw spring-boot:run`.
+
+If `.env` is not picked up, load it into the shell first.
+Linux/macOS: `set -a; . ./.env; set +a`
+PowerShell: `Get-Content .env | Where-Object { $_ -match '^\s*[^#\s].*=' } | ForEach-Object { $k,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($k.Trim(),$v.Trim()) }`
+
+### Local build (everything in Docker, built from source)
+
+```bash
+docker compose down
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --build -d
-
-# Pull and start published images
-docker compose -f docker-compose.yml pull
-docker compose -f docker-compose.yml up -d
-
-# Stop without deleting named data volumes
-docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ```
 
-The Compose files publish user-service on port `8081` and journal-service on port `8082`. The local overlay additionally publishes Kafka on host port `29092`, MySQL on `127.0.0.1:3307`, and MongoDB on `127.0.0.1:27018`. The base Compose file does not publish database or Kafka ports to the host.
+### Docker Hub images (same file the server uses)
+
+```bash
+docker compose down
+docker compose pull
+docker compose up -d        # uses IMAGE_TAG from .env, default latest
+```
+
+### Everyday commands
+
+| Task | Command (same on all platforms) |
+|---|---|
+| Status | `docker compose ps` |
+| Logs | `docker compose logs -f --tail 100` |
+| Stop (keeps data) | `docker compose down` |
+| Reset (DELETES all data) | `docker compose down -v` |
+| Tests, one service | `cd user-service && ./mvnw -B verify` (Windows: `.\mvnw.cmd -B verify`) |
+| Health | `curl http://localhost:8081/actuator/health` (PowerShell: `curl.exe`) |
+
+Only one mode can run at a time (fixed container names and ports).
+Publishing images by hand should be replaced by CI (section 3).
+The local overlay publishes Kafka on host port `29092`, MySQL on `127.0.0.1:3307`, and MongoDB on `127.0.0.1:27018`; the base Compose file does not publish database or Kafka ports to the host.
 
 ## API reference
 
@@ -283,26 +287,26 @@ The collection contains user login/logout and user create/list/get-by-ID/update/
 
 Run tests per service:
 
-```powershell
+```bash
 cd user-service
-mvn -B test
+./mvnw -B test
 ```
 
-```powershell
+```bash
 cd journal-service
-mvn -B test
+./mvnw -B test
 ```
 
-From the repository root, `.\dev.ps1 test` runs `mvn -B test` in both services. To run Maven's verify lifecycle and generate the configured JaCoCo reports, run:
+On Windows, use `.\mvnw.cmd` instead of `./mvnw`. To run Maven's verify lifecycle and generate the configured JaCoCo reports, run:
 
-```powershell
+```bash
 cd user-service
-mvn -B verify
+./mvnw -B verify
 ```
 
-```powershell
+```bash
 cd journal-service
-mvn -B verify
+./mvnw -B verify
 ```
 
 JaCoCo report location in each service: `target/site/jacoco/index.html`. The current POMs configure the JaCoCo agent and report but do not configure a coverage check or minimum threshold. The requested build target is 80% line coverage on the bundle, excluding DTO, entity, modal, config, and application classes; that check is not active until the POMs are updated.
@@ -311,13 +315,7 @@ Existing tests are `UserOperationsTests` and `UserServiceApplicationTests` in us
 
 ## Publishing and releasing images
 
-The Compose image names use the `sahilsheikhdev` namespace. The publish command in `dev.ps1` builds and pushes each service for `linux/amd64`, tagging each image with both the supplied tag and `latest`:
-
-```powershell
-.\dev.ps1 publish -Tag 1.0.1
-```
-
-Authenticate to the image registry and choose a release tag before publishing. For deployments, set `IMAGE_TAG` to the release tag rather than relying on `latest`. The `hub` run mode pulls the image tag selected by `IMAGE_TAG`.
+Publish images through CI rather than building and pushing them by hand. For deployments, set `IMAGE_TAG` to the release tag rather than relying on `latest`.
 
 ## Troubleshooting
 
@@ -328,10 +326,10 @@ Authenticate to the image registry and choose a release tag before publishing. F
 | MongoDB URI authentication fails | Check `MONGO_APP_PASSWORD`, `authSource=journaldb`, and URI-safe characters in the password. |
 | Kafka client cannot connect | Use `localhost:29092` for host-run services and `kafka:9092` for Compose services. Confirm both services use the same Kafka cluster and `TOPIC_USER_CREATED`. |
 | Service container remains unhealthy | Inspect `docker compose logs <service>`. The configured health check requests `/actuator/health` without authentication, while the security configuration does not permit anonymous access to that endpoint. |
-| Swagger UI is unavailable | Set `SWAGGER_ENABLED=true`; it is disabled by default. Local Compose and host dev modes set it to true. |
+| Swagger UI is unavailable | Set `SWAGGER_ENABLED=true` in `.env` for local host runs; it is disabled by default. The local Compose overlay enables it. |
 | JWT is rejected after changing the signing key | Set the same `JWT_SECRET` for both services and obtain a new token. The code uses HS512, which requires at least a 64-byte key. |
-| Host port is already in use | Stop the other run mode or the conflicting process; the script modes share fixed container names and ports. |
-| MySQL/MongoDB/Kafka data must be removed | `.\dev.ps1 reset` prompts before removing the Compose named volumes. This permanently deletes their persisted data. |
+| Host port is already in use | Stop the other mode or the conflicting process; the modes share fixed container names and ports. |
+| MySQL/MongoDB/Kafka data must be removed | Run `docker compose down -v` to remove Compose named volumes. This permanently deletes their persisted data. |
 | Image pull fails | Retry the pull and check Docker registry authentication and network/proxy connectivity. |
 
 ## Known limitations
