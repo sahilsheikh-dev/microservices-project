@@ -60,7 +60,9 @@ public class SecurityConfig {
                     "/v3/api-docs/**",
                     "/api-docs/**",
                     "/api/auth/**",
-                    "/api/journals/**"
+                    "/api/journals/**",
+                    "/actuator/health",
+                    "/actuator/health/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )
