@@ -116,7 +116,7 @@ Databases and Kafka run in Docker; the Spring services run on the host with rest
 
 ```bash
 docker compose stop user-service journal-service
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d kafka mysql-user mongodb-journal
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d kafka kafka-init mysql-user mongodb-journal
 ```
 
 In separate terminals:
@@ -179,6 +179,8 @@ docker compose up -d
 | Health | `curl http://localhost:8081/actuator/health` (PowerShell: `curl.exe`) |
 
 The local overlay publishes Kafka on `localhost:29092`, MySQL on `127.0.0.1:3307`, and MongoDB on `127.0.0.1:27018`. The base Compose file does not publish those infrastructure ports.
+
+Kafka topic auto-creation is disabled. The one-shot `kafka-init` service creates `user-events` with three partitions and `user-operation-failed` with one partition before either application starts. To run the end-to-end checks against a healthy stack, use `bash scripts/smoke.sh` from the repository root; the script requires `jq` and `curl`.
 
 ## API
 
@@ -301,5 +303,4 @@ Docker is required for Testcontainers integration tests. No `*IT.java` integrati
 ## Publishing
 
 The base Compose file pulls prebuilt images. Publishing and release automation are not included in this repository; publish new service images through the project's release process, then select their tag with `IMAGE_TAG`.
-
 

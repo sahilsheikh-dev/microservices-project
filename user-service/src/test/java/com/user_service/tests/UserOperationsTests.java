@@ -37,7 +37,7 @@ class UserOperationsTests {
     private UserService userService;
 
     @Test
-    void createUser_ignoresSuppliedRoleAndHashesPassword() {
+    void createUser_assignsUserRoleAndHashesPassword() {
         when(userRepository.findByEmail("person@example.com")).thenReturn(Optional.empty());
         when(passwordEncoder.encode("password123")).thenReturn("encoded");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
