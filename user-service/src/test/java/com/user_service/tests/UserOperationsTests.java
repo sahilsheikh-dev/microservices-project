@@ -2,10 +2,10 @@ package com.user_service.tests;
 
 import com.user_service.controller.UserController;
 import com.user_service.entity.User;
+import com.user_service.exception.ResourceNotFoundException;
 
 import com.user_service.service.KafkaProducerService;
 import com.user_service.service.UserService;
-import org.apache.kafka.common.errors.ResourceNotFoundException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

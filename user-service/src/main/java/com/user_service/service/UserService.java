@@ -1,11 +1,10 @@
 package com.user_service.service;
 
 import com.user_service.entity.User;
+import com.user_service.exception.ResourceNotFoundException;
 import com.user_service.modal.Role;
 import com.user_service.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.apache.kafka.common.errors.ResourceNotFoundException;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -18,9 +17,6 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final KafkaProducerService kafkaProducerService;
-
-    @Autowired
     private final PasswordEncoder passwordEncoder;
 
     public User createUser(User user) {
