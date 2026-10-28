@@ -1,5 +1,7 @@
 package com.user_service.tests;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.user_service.dto.UserCreateRequest;
 import com.user_service.dto.UserUpdateRequest;
 import com.user_service.entity.User;
@@ -37,13 +39,16 @@ class UserOperationsTests {
     private UserService userService;
 
     @Test
-    void createUser_assignsUserRoleAndHashesPassword() {
+    void createUser_ignoresAdminRoleInRegistrationBodyAndHashesPassword() throws Exception {
         when(userRepository.findByEmail("person@example.com")).thenReturn(Optional.empty());
         when(passwordEncoder.encode("password123")).thenReturn("encoded");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var response = userService.createUser(new UserCreateRequest(
-                "Person", " PERSON@EXAMPLE.COM ", "password123"));
+        UserCreateRequest request = new ObjectMapper()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .readValue("{\"name\":\"Person\",\"email\":\" PERSON@EXAMPLE.COM \","
+                        + "\"password\":\"password123\",\"roles\":\"ADMIN\"}", UserCreateRequest.class);
+        var response = userService.createUser(request);
 
         assertThat(response.email()).isEqualTo("person@example.com");
         assertThat(response.roles()).isEqualTo("USER");
