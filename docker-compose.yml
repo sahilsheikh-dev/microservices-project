@@ -90,7 +90,10 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TOPIC_USER_CREATED: user-events
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-user-service}
       JWT_EXPIRATION: "3600000"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
       interval: 15s
@@ -118,9 +121,8 @@ services:
       TOPIC_USER_CREATED: user-events
       TOPIC_USER_FAILED: user-operation-failed
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-user-service}
       JWT_EXPIRATION: "3600000"
-      ADMIN_EMAIL: ${JOURNAL_ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${JOURNAL_ADMIN_PASSWORD:?Set JOURNAL_ADMIN_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8082/actuator/health || exit 1"]
       interval: 15s

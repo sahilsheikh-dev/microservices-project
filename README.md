@@ -1,350 +1,255 @@
-# Microservices Project: User Service and Journal Service
+# Microservices Project
 
-Two Spring Boot services exchange user-operation events through Kafka. The user service stores accounts in MySQL; the journal service consumes those events, stores journal records in MongoDB, and exposes a REST API.
+The project contains two Spring Boot services. `user-service` stores accounts in MySQL, issues JWTs, and publishes user-operation events to Kafka. `journal-service` validates those JWTs, consumes the events, stores journal records in MongoDB, and exposes a read-only journal API.
 
-## Architecture
+## Architecture and authentication
 
 ```text
-  +------------------+       +-----------------------+       +-----------+
-  | Client / Postman | -----> | user-service         | ----> | MySQL 8   |
-  +--------+---------+  REST  | REST API, JWT        |       | userdb    |
-           |                  | Kafka producer       |       +-----------+
-           |                  +-----------+----------+
-           |                              |
-           |                              v
-           |                  +-----------------------+
-           |                  | Kafka 7.5.1 (KRaft)   |
-           |                  | topic: user-events    |
-           |                  | no ZooKeeper          |
-           |                  +-----------+-----------+
-           |                              |
-           |                              v
-           |                  +-----------------------+       +-----------+
-           +----------------> | journal-service       | ----> | MongoDB 6 |
-                    REST      | REST API, JWT         |       | journaldb |
-                              | Kafka consumer        |       +-----------+
-                              +-----------------------+
+Client --REST/JWT--> user-service --MySQL
+                          |
+                          +-- Kafka: user-events --journal-service --MongoDB
 ```
 
-Clients call either service directly; there is no API gateway. Compose runs the databases, Kafka, and both services. In `dev` mode, Compose runs only Kafka and the databases while the Spring applications run on the host.
+There is no API gateway. `user-service` is the only token issuer. Tokens use HS512 and contain the user ID as `sub`, plus `email`, `roles`, `iss`, `iat`, `exp`, and `jti`. Both services validate the signature and issuer using the same `JWT_SECRET`. The secret must contain at least 64 bytes.
 
-## Technology stack
+Public registration always creates a `USER`. An `ADMIN` is created at user-service startup only when both `ADMIN_EMAIL` and `ADMIN_PASSWORD` are non-blank and no administrator exists. An administrator can also assign roles through `PUT /api/users/{id}`. Journal endpoints require an `ADMIN` token.
 
-| Component | Version or implementation |
+Logout records a `LOGOUT` event but does not revoke the JWT. It remains valid until its expiration time.
+
+## Technology
+
+| Component | Implementation |
 |---|---|
 | Java | 21 |
 | Spring Boot | 3.2.2 |
-| Spring Security | Spring Boot-managed |
 | User database | MySQL 8.0, Spring Data JPA |
 | Journal database | MongoDB 6, Spring Data MongoDB |
 | Kafka | Confluent `cp-kafka:7.5.1`, KRaft mode |
 | JWT | JJWT 0.11.5, HMAC-SHA512 |
-| OpenAPI UI | Springdoc 2.2.0 |
-| JUnit Jupiter | 5.9.3 (explicitly declared in both POMs) |
-| Mockito | 5.24.0 |
-| Spring Kafka test support | Spring Boot-managed |
-| JaCoCo | 0.8.15 |
-| Container build | Maven 3.9 with Eclipse Temurin 21; Temurin 21 JRE runtime |
+| API documentation | Springdoc OpenAPI 2.2.0 |
+| Tests | JUnit Jupiter, AssertJ, Mockito, Spring Boot Test |
+| Coverage | JaCoCo |
 
-Dependency versions are taken from the service POM files or the image tags in Compose. Versions not explicitly declared by the POMs are described as Spring Boot-managed rather than inferred.
-
-## Prerequisites
+## Requirements and setup
 
 - Docker with the Docker Compose v2 plugin.
-- Java 21 for running the applications on the host. The Maven wrapper is included, so Maven is not required.
-- Optional: MySQL Workbench or MongoDB Compass for local database inspection.
+- JDK 21 or later for running the applications on the host. The Maven wrapper is included.
 
-## Repository structure
+Copy `.env.example` to `.env` and fill in the required values. Never commit `.env`. Generate `JWT_SECRET` with `openssl rand -hex 32` on Linux/macOS/Git Bash or `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` in PowerShell 7. Both services must receive the same secret and issuer.
 
-The tree below reflects the current workspace files.
+Spring imports the root `.env` when an application is started from its service directory. Compose also reads the root `.env`. Environment variables exported in the shell take precedence over values in the file.
 
-```text
-.
-|-- .gitignore
-|-- .gitattributes
-|-- .env.example
-|-- README.md
-|-- docker-compose.yml
-|-- docker-compose.local.yml
-|-- mongo-init/
-|   `-- 01-create-user.js
-|-- postman/
-|   `-- Microservices Collection.postman_collection.json
-|-- user-service/
-|   |-- .gitattributes
-|   |-- .gitignore
-|   |-- Dockerfile
-|   |-- mvnw, mvnw.cmd
-|   |-- pom.xml
-|   |-- .mvn/wrapper/maven-wrapper.properties
-|   `-- src/
-|       |-- main/java/com/user_service/
-|       |   |-- UserServiceApplication.java
-|       |   |-- config/ (JacksonConfig, KafkaProducerConfig, OpenApiConfig, SecurityConfig)
-|       |   |-- controller/ (AuthController, HealthController, UserController)
-|       |   |-- dto/KafkaMessageDto.java
-|       |   |-- entity/User.java
-|       |   |-- exception/ (GlobalExceptionHandler, ResourceNotFoundException)
-|       |   |-- modal/ (AuthRequest, AuthResponse, CustomUserDetails, Role)
-|       |   |-- repository/UserRepository.java
-|       |   |-- security/ (JwtAuthenticationFilter, JwtTokenProvider)
-|       |   `-- service/ (CustomUserDetailsService, KafkaProducerService, UserService)
-|       |-- main/resources/application.properties
-|       `-- test/java/com/user_service/
-|           |-- UserServiceApplicationTests.java
-|           `-- tests/UserOperationsTests.java
-`-- journal-service/
-    |-- .gitattributes
-    |-- .gitignore
-    |-- Dockerfile
-    |-- mvnw, mvnw.cmd
-    |-- pom.xml
-    |-- .mvn/wrapper/maven-wrapper.properties
-    `-- src/
-        |-- main/java/com/journal_service/
-        |   |-- JournalServiceApplication.java
-        |   |-- config/ (JacksonConfig, OpenApiConfig, SecurityConfig)
-        |   |-- controller/ (AuthController, HealthController, JournalController)
-        |   |-- dto/ (JournalDto, UserDto)
-        |   |-- entity/Journal.java
-        |   |-- exception/ (GlobalExceptionHandler, ResourceNotFoundException)
-        |   |-- modal/ (AuthRequest, AuthResponse, CustomUserDetails, Role)
-        |   |-- repository/JournalRepository.java
-        |   |-- security/ (JwtAuthenticationFilter, JwtTokenProvider)
-        |   `-- service/ (CustomUserDetailsService, JournalService, KafkaConsumerService)
-        |-- main/resources/application.properties
-        `-- test/java/com/journal_service/JournalServiceApplicationTests.java
-```
+| Variable | Required | Default | Purpose |
+|---|---:|---|---|
+| `MYSQL_ROOT_PASSWORD` | Yes | None | MySQL root credential. |
+| `MYSQL_APP_PASSWORD` | Yes | None | MySQL `appuser` password; also the fallback for user-service `DB_PASSWORD`. |
+| `MONGO_ROOT_PASSWORD` | Yes | None | MongoDB root credential. |
+| `MONGO_APP_PASSWORD` | Yes | None | MongoDB `journalapp` password. Use URI-safe characters such as hexadecimal. |
+| `JWT_SECRET` | Yes | None | Shared HS512 signing/validation key, at least 64 bytes. |
+| `JWT_ISSUER` | No | `user-service` | Issuer expected by both services. |
+| `ADMIN_EMAIL` | No | `admin@example.com` in Compose; empty for a host run | Bootstrap administrator email for user-service. |
+| `ADMIN_PASSWORD` | Yes in Compose | Empty for a host run | Bootstrap administrator password for user-service. |
+| `IMAGE_TAG` | No | `latest` | Tag used by the base Compose file. |
+| `USER_DDL_AUTO` | No | `update` | JPA schema mode in Compose. |
+| `SWAGGER_ENABLED` | No | `false` | Enables OpenAPI and Swagger UI. Set to `true` for host runs when needed. |
+| `KAFKA_CLUSTER_ID` | No | `MkU3OEVBNTcwNTJENDM2Qk` | KRaft cluster ID. |
 
-## Configuration
+Other useful host-run settings are `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_URI`, `KAFKA_BOOTSTRAP_SERVERS`, `GROUP_ID`, `TOPIC_USER_CREATED`, and `TOPIC_USER_FAILED`. Application defaults are in each service's `application.properties`. Compose supplies its container-specific database URLs and Kafka addresses.
 
-Copy `.env.example` to `.env` and fill in the required values. Keep `.env` out of version control. Generate a secret with `openssl rand -hex 32` (Linux/macOS/Git Bash) or `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell 7).
-
-`JWT_SECRET` is used with HMAC-SHA512 in both services and must be at least 64 bytes. The exact same value must be provided to both services. Compose inserts `MONGO_APP_PASSWORD` directly into a MongoDB URI; use a URI-safe password (hexadecimal characters are suitable) unless the URI value is encoded correctly.
-
-The table lists variables interpolated by Compose or read by the application properties. Compose also sets several fixed container values, such as service ports, database names, Kafka listeners, the Mongo application username (`journalapp`), and topic names; those fixed values are visible in `docker-compose.yml`.
-
-### MongoDB initialization
-
-Compose mounts `mongo-init/01-create-user.js` into MongoDB's `/docker-entrypoint-initdb.d` directory. On first initialization of an empty MongoDB data volume, the script switches to `journaldb` and creates the application user using `MONGO_APP_USER` and `MONGO_APP_PASSWORD`, granting that user the `readWrite` role on `journaldb`. Compose sets `MONGO_APP_USER` to `journalapp` and supplies the password from the root `.env`. The journal service connects with that application account; the MongoDB root account is separate.
-
-MongoDB's initialization scripts are not rerun for an already-initialized data volume. If the application user was not created on first initialization, inspect the volume and credentials; `docker compose down -v` deletes persisted database and Kafka data.
-
-| Variable | Service or scope | Required? | Default | Purpose |
-|---|---|---:|---|---|
-| `MYSQL_ROOT_PASSWORD` | Compose / MySQL | Yes | None | MySQL root credential; Compose rejects an unset or empty value. |
-| `MYSQL_APP_PASSWORD` | Compose / MySQL, user-service | Yes | None | Creates the MySQL `appuser` password and supplies user-service `DB_PASSWORD`. |
-| `MONGO_ROOT_PASSWORD` | Compose / MongoDB | Yes | None | MongoDB root credential. |
-| `MONGO_APP_PASSWORD` | Compose / MongoDB, journal-service | Yes | None | Creates the `journalapp` credential and is inserted into journal-service `DB_URI`. |
-| `JWT_SECRET` | Both services | Yes | None | Signs and validates JWTs; must be identical across services and at least 64 bytes for HS512. |
-| `JOURNAL_ADMIN_PASSWORD` | Compose / journal-service | Yes | None | Supplies the journal service's in-memory admin password as `ADMIN_PASSWORD`. |
-| `JOURNAL_ADMIN_EMAIL` | Compose / journal-service | No | `admin@example.com` | Supplies the in-memory admin email as `ADMIN_EMAIL`. |
-| `IMAGE_TAG` | Compose image selection | No | `latest` | Selects the user-service and journal-service image tag. |
-| `USER_DDL_AUTO` | Compose / user-service | No | `update` | Supplies the user-service JPA schema mode as `DDL_AUTO`. |
-| `KAFKA_CLUSTER_ID` | Compose / Kafka | No | `MkU3OEVBNTcwNTJENDM2Qk` | KRaft Kafka cluster identifier. |
-| `SERVER_PORT` | Both applications | No | `8081` user-service; `8082` journal-service | Application HTTP port. |
-| `DB_URL` | user-service | No | `jdbc:mysql://localhost:3307/userdb` | MySQL JDBC URL. Compose overrides it for the container network. |
-| `DB_USERNAME` | user-service | No | `appuser` | MySQL application username. |
-| `DB_PASSWORD` | user-service | Yes | `MYSQL_APP_PASSWORD` | MySQL application password. Compose sets it from `MYSQL_APP_PASSWORD`; host runs use the same value from the root `.env`. |
-| `DDL_AUTO` | user-service | No | `update` | Hibernate schema behavior. Compose maps `USER_DDL_AUTO` to this variable. |
-| `SHOW_SQL` | user-service | No | `false` | Enables Hibernate SQL logging. |
-| `HIBERNATE_FORMAT_SQL` | user-service | No | `false` | Formats Hibernate SQL log output. |
-| `LOG_LEVEL_ROOT` | Both applications | No | `info` | Root logging level. |
-| `LOG_LEVEL_SPRING` | Both applications | No | `warn` | Spring logging level. |
-| `LOG_LEVEL_SQL` | user-service | No | `warn` | Hibernate SQL logger level. |
-| `LOG_LEVEL_SQL_BIND` | user-service | No | `warn` | Hibernate JDBC bind logger level. |
-| `DB_URI` | journal-service | Yes | Built from `MONGO_USERNAME`, `MONGO_APP_PASSWORD`, `MONGO_HOST`, and `MONGO_PORT` | MongoDB connection URI. Compose provides a container-network URI; host runs default to `journalapp@localhost:27018`. |
-| `KAFKA_BOOTSTRAP_SERVERS` | Both applications | No | `localhost:29092` | Kafka bootstrap address; both services need to reach the same broker. |
-| `GROUP_ID` | journal-service | No | `journal-service-group` | Kafka consumer group. |
-| `TOPIC_USER_CREATED` | Both applications | No | `user-events` | User-operation topic; it must match for the consumer to receive producer events. |
-| `TOPIC_USER_FAILED` | Both applications | No | `user-operation-failed` | Declared failure-topic configuration; the current producer and consumer do not use it. |
-| `SWAGGER_ENABLED` | Both applications | No | `false` | Enables or disables OpenAPI docs and Swagger UI. The local Compose overlay enables it; add `SWAGGER_ENABLED=true` to `.env` for host runs. |
-| `JWT_EXPIRATION` | Both applications | No | `3600000` milliseconds | JWT lifetime when that service issues a token. |
-| `ADMIN_EMAIL` | journal-service | No | `admin@example.com` | Email for the journal service's in-memory admin account. Compose maps `JOURNAL_ADMIN_EMAIL` here. |
-| `ADMIN_PASSWORD` | journal-service | Yes | `JOURNAL_ADMIN_PASSWORD` | Password for the journal service's in-memory admin account. Compose maps `JOURNAL_ADMIN_PASSWORD` here; host runs read it from the root `.env`. |
-
-Spring imports the root `.env` for host runs. The application properties fall back from `DB_PASSWORD` to `MYSQL_APP_PASSWORD`, from `DB_URI` to the MongoDB settings, and from `ADMIN_EMAIL`/`ADMIN_PASSWORD` to `JOURNAL_ADMIN_EMAIL`/`JOURNAL_ADMIN_PASSWORD`. For local host runs only, add `SWAGGER_ENABLED=true` to `.env`.
+MongoDB's `mongo-init/01-create-user.js` script creates the `journalapp` account only when the MongoDB data volume is initialized for the first time. If credentials change after initialization, the existing database user must be updated separately or the data volume must be deliberately recreated.
 
 ## Running the project
 
-Requires Docker (Compose v2) and Java 21. The Maven wrapper is used, so Maven is not required.
-Run all commands from the repository root. Windows users use PowerShell.
+Run commands from the repository root. Windows users should use PowerShell and the `.cmd` Maven wrapper.
 
-Setup: copy `.env.example` to `.env` and fill every value.
-Generate a secret with `openssl rand -hex 32` (Linux/macOS/Git Bash) or
-`[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell 7).
+### Development mode
 
-### Dev mode (infrastructure in Docker, apps on your machine with hot reload)
+Databases and Kafka run in Docker; the Spring services run on the host with restart-on-change development support.
 
 ```bash
 docker compose stop user-service journal-service
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d kafka mysql-user mongodb-journal
-
-# terminal 1                                  # terminal 2
-cd user-service && ./mvnw spring-boot:run     cd journal-service && ./mvnw spring-boot:run
 ```
-Windows: use `.\mvnw.cmd spring-boot:run` instead of `./mvnw spring-boot:run`.
 
-If `.env` is not picked up, load it into the shell first.
-Linux/macOS: `set -a; . ./.env; set +a`
-PowerShell: `Get-Content .env | Where-Object { $_ -match '^\s*[^#\s].*=' } | ForEach-Object { $k,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($k.Trim(),$v.Trim()) }`
+In separate terminals:
 
-### Local build (everything in Docker, built from source)
+```bash
+cd user-service && ./mvnw spring-boot:run
+```
+
+```bash
+cd journal-service && ./mvnw spring-boot:run
+```
+
+On Windows, run `.\mvnw.cmd spring-boot:run` from each service directory.
+
+If Spring does not import `.env`, load it into the shell first. Linux/macOS:
+
+```bash
+set -a
+. ./.env
+set +a
+```
+
+PowerShell:
+
+```powershell
+Get-Content .env | Where-Object { $_ -match '^\s*[^#\s].*=' } | ForEach-Object { $k,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($k.Trim(),$v.Trim()) }
+```
+
+For host-run applications only, set `SWAGGER_ENABLED=true` in `.env` to enable Swagger.
+
+### Local Docker build
+
+This builds both application images from source and runs the full stack:
 
 ```bash
 docker compose down
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --build -d
 ```
 
-### Docker Hub images (same file the server uses)
+### Docker Hub images
+
+The base Compose file uses the published `sahilsheikhdev/user-service` and `sahilsheikhdev/journal-service` images:
 
 ```bash
 docker compose down
 docker compose pull
-docker compose up -d        # uses IMAGE_TAG from .env, default latest
+docker compose up -d
 ```
+
+`IMAGE_TAG` selects the image version. Only one run mode can be active at a time because the modes share container names and host ports.
 
 ### Everyday commands
 
-| Task | Command (same on all platforms) |
+| Task | Command |
 |---|---|
 | Status | `docker compose ps` |
 | Logs | `docker compose logs -f --tail 100` |
-| Stop (keeps data) | `docker compose down` |
-| Reset (DELETES all data) | `docker compose down -v` |
-| Tests, one service | `cd user-service && ./mvnw -B verify` (Windows: `.\mvnw.cmd -B verify`) |
+| Stop and keep data | `docker compose down` |
+| Delete all Compose data | `docker compose down -v` |
 | Health | `curl http://localhost:8081/actuator/health` (PowerShell: `curl.exe`) |
 
-Only one mode can run at a time (fixed container names and ports).
-Publishing images by hand should be replaced by CI (section 3).
-The local overlay publishes Kafka on host port `29092`, MySQL on `127.0.0.1:3307`, and MongoDB on `127.0.0.1:27018`; the base Compose file does not publish database or Kafka ports to the host.
+The local overlay publishes Kafka on `localhost:29092`, MySQL on `127.0.0.1:3307`, and MongoDB on `127.0.0.1:27018`. The base Compose file does not publish those infrastructure ports.
 
-## API reference
+## API
 
-Routes and access rules below are derived from the controllers and security configuration. Request bodies are summaries of the Java request model; no example credentials are included.
+Both services return JSON errors with this shape:
+
+```json
+{
+  "timestamp": "2025-01-01T00:00:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "code": "VALIDATION_ERROR",
+  "message": "Request validation failed",
+  "path": "/api/users",
+  "fieldErrors": [
+    { "field": "email", "message": "must be a well-formed email address" }
+  ]
+}
+```
+
+`fieldErrors` is an array and is empty when there are no field-level validation errors. 5xx responses use a generic message; exception details are logged rather than returned.
+
+All list endpoints accept `page` (default `0`), `size` (default `20`, maximum `100`), and `sort`. Responses use `{content,page,size,totalElements,totalPages}`.
 
 ### user-service
 
-| Method | Path | Authentication / role | Request body | Responses |
-|---|---|---|---|---|
-| `GET` | `/` | Public | None | `200` plain-text service status. |
-| `POST` | `/api/auth/login` | Public | `email`, `password` | `200` token response; generic handled exception returns `500`. |
-| `POST` | `/api/auth/logout` | Public by the current request matcher | None | `200` plain-text logout message. Logout clears the current security context but does not revoke an already issued JWT. |
-| `POST` | `/api/users` | Public | `name`, `email`, `password`, `roles` (`ADMIN` or `USER`) | `201` created user; caught operation failure returns `500`. |
-| `GET` | `/api/users` | `ADMIN` | None | `200` list of users. |
-| `GET` | `/api/users/{id}` | Authenticated `ADMIN`, or the user whose ID matches `{id}` | None | `200` user; caught lookup failure returns `404`. |
-| `PUT` | `/api/users/{id}` | `ADMIN` | User fields to update: `name`, `email`, `password`, `roles` | `200` updated user; caught operation failure returns `500`. |
-| `DELETE` | `/api/users/{id}` | `ADMIN` | None | `200` deleted user; caught lookup failure returns `404`. |
+Base URL: `http://localhost:8081`
+
+| Method | Path | Access | Behavior |
+|---|---|---|---|
+| `GET` | `/` | Public | Service status. |
+| `GET` | `/actuator/health` | Public | Health status. |
+| `POST` | `/api/auth/login` | Public | Authenticates credentials and returns `accessToken`, `tokenType`, and `expiresIn` in seconds. |
+| `POST` | `/api/auth/logout` | Authenticated | Records logout; the token is not revoked. |
+| `POST` | `/api/users` | Public | Registers a `USER`; response is `201`. `name`, `email`, and `password` are required. Registration ignores any `roles` property in the body. |
+| `GET` | `/api/users` | `ADMIN` | Paginated user list. |
+| `GET` | `/api/users/me` | Authenticated | Returns the current account. |
+| `GET` | `/api/users/{id}` | `ADMIN` or that user | Returns one account. |
+| `PUT` | `/api/users/{id}` | `ADMIN` | Updates account fields; roles, when supplied, must be `USER` or `ADMIN`. `email` is currently required by request validation. |
+| `DELETE` | `/api/users/{id}` | `ADMIN` | Deletes the account. |
+
+User responses contain `id`, `name`, `email`, `roles`, `createdAt`, and `updatedAt`; they never contain passwords.
 
 ### journal-service
 
-| Method | Path | Authentication / role | Request body | Responses |
-|---|---|---|---|---|
-| `GET` | `/` | Public | None | `200` plain-text service status. |
-| `POST` | `/api/auth/login` | Public | `email`, `password` | `200` token response; generic handled exception returns `500`. |
-| `POST` | `/api/journals` | Public by the current controller annotations | Journal fields, including user identity, operation, status, comment, and operation time | `201` created journal; generic handled exception returns `500`. |
-| `GET` | `/api/journals` | `ADMIN` | None | `200` list of journals. |
-| `GET` | `/api/journals/user/{userId}` | `ADMIN` | None | `200` list of journals for the user ID. |
-| `GET` | `/api/journals/{id}` | `ADMIN` | None | `200` journal; missing ID returns `404`. |
-| `PUT` | `/api/journals/{id}` | `ADMIN` | Journal fields to update | `200` updated journal; missing ID returns `404`. |
-| `DELETE` | `/api/journals/{id}` | `ADMIN` | None | `204` on deletion; missing ID returns `404`. |
+Base URL: `http://localhost:8082`
 
-The actuator endpoint `/actuator/health` is configured for exposure, but it is not a controller route and is not included in the controller tables. Both security configurations require authentication for it. In contrast, the root controller route `/` is public.
+| Method | Path | Access | Behavior |
+|---|---|---|---|
+| `GET` | `/` | Public | Service status. |
+| `GET` | `/actuator/health` | Public | Health status. |
+| `GET` | `/api/journals` | `ADMIN` | Paginated journal list; default sort is `operationTime,desc`. |
+| `GET` | `/api/journals/user/{userId}` | `ADMIN` | Paginated events for a numeric user ID. |
+| `GET` | `/api/journals/{id}` | `ADMIN` | Returns one journal entry. |
+| `DELETE` | `/api/journals/{id}` | `ADMIN` | Deletes one journal entry; response is `204`. |
 
-### Postman collection cross-check
+Journal entries are created only by the Kafka consumer. There are no journal create or update endpoints. Journal JSON dates are ISO-8601 strings.
 
-The collection contains user login/logout and user create/list/get-by-ID/update/delete requests. It also contains journal login and get-all/get-by-ID entries.
+OpenAPI and Swagger UI endpoints are permitted by security but disabled by default. Set `SWAGGER_ENABLED=true` to enable them.
 
-- The journal get-by-ID request has no URL configured.
-- The collection omits journal create, get-by-user-ID, update, and delete requests that exist in the controller.
-- The collection includes credential examples that do not match environment-based journal admin provisioning. Do not rely on those examples; use configured credentials without copying them into documentation.
-- User-service has no seeded account. Registering an account is needed before login, but the public registration endpoint accepts an `ADMIN` role. Do not expose this service publicly in its current state.
+## Kafka event contract
 
-## Kafka
+`user-service` publishes events to `user-events` by default; `TOPIC_USER_CREATED` configures the topic for both services. The JSON contract is version 2:
 
-| Item | Current behavior |
-|---|---|
-| Broker | Confluent Kafka 7.5.1 in KRaft mode; Compose configures no ZooKeeper service. |
-| Main topic | `user-events` by default, configurable through `TOPIC_USER_CREATED`. The producer and consumer must use the same topic and broker. |
-| Configured failure topic | `user-operation-failed` by default, configurable through `TOPIC_USER_FAILED`. It is declared in properties and Compose but is not used by the current producer or consumer. |
-| Producer | user-service publishes create, get-by-ID, update, delete, login, and logout operation records to the main topic. The get-all-users route does not publish an event. Success and failure records use the same topic. |
-| Event payload | `operation`, `status`, `comment`, and nested `user`. The nested value is serialized from the `User` entity; its model includes `userId`, `name`, `email`, `password`, `roles`, `createdAt`, and `updatedAt`. |
-| Consumer | journal-service listens only to the main topic, deserializes the event and writes a journal record to MongoDB. It sets `operationTime` when consuming. It does not branch on operation type, so an otherwise valid unknown operation value is stored as an operation string. |
-| Malformed message | The consumer catches and logs processing errors; it does not write a journal entry for a message that fails parsing and no separate dead-letter/failure-topic handling is configured. |
+```json
+{
+  "schemaVersion": 2,
+  "eventId": "a2d5a649-5ca8-4ea6-9aa4-9555ca343020",
+  "occurredAt": "2025-01-01T00:00:00Z",
+  "operation": "CREATE",
+  "status": "SUCCESS",
+  "comment": "User created",
+  "userId": 1,
+  "userName": "Example User",
+  "userEmail": "user@example.com",
+  "userRole": "USER"
+}
+```
 
-## Security
+Operations are `CREATE`, `UPDATE`, `DELETE`, `LOGIN`, and `LOGOUT`; statuses are `SUCCESS` and `FAILURE`. The Kafka key is the user ID as a string, or `unknown` when the ID is absent. Events never serialize entities or include passwords. Reading users does not publish events. A failed login event contains only the attempted email, a null user ID, and the comment `Invalid credentials`.
 
-- Both services use stateless bearer JWTs signed with HMAC-SHA512. Both must be configured with the same `JWT_SECRET`; the default token lifetime is one hour.
-- user-service authenticates users stored in MySQL and encodes passwords during account creation with BCrypt. Its JWT includes the user ID as subject and includes email and roles as claims. The current update path does not encode a newly supplied password.
-- journal-service provisions one in-memory admin identity from `ADMIN_EMAIL` and required `ADMIN_PASSWORD`; it does not load that admin from MongoDB. The password is BCrypt-encoded when the user-details service is constructed. The admin email defaults to `admin@example.com`.
-- `ADMIN` is required for user listing, updating, and deletion, and for all journal retrieval/update/delete endpoints. An authenticated user can also fetch their own user record by ID.
-- Public controller routes include each service's `GET /`, each `/api/auth/**` route in user-service, user-service `POST /api/users`, journal-service `POST /api/auth/login`, and journal-service `POST /api/journals`. The broader `/api/journals/**` security matcher permits requests through the filter chain, while method annotations restrict the journal methods marked `ADMIN`.
-- Swagger and API-doc routes are permitted by the security configurations but disabled by default; `SWAGGER_ENABLED=true` enables them.
-- `/actuator/health` is exposed but is not on either security allowlist, so it requires authentication. The Compose health checks call it without a token; see Findings below.
-- The API and Kafka listeners use plain HTTP/PLAINTEXT configuration; no TLS termination or Kafka TLS is configured in these files.
+The producer sends events asynchronously after a successful transaction commit where applicable. Send failures are logged with the event ID and topic. There is no outbox, so a process failure can lose an event. `journal-service` accepts the legacy nested-user event shape while existing topic data drains. Invalid messages are retried and then sent to `user-operation-failed` by default; configure the dead-letter topic with `TOPIC_USER_FAILED`. Duplicate v2 event IDs are skipped.
+
+## Security and known limitations
+
+- JWTs use a shared HS512 secret. Both services must use the same secret and `JWT_ISSUER`; a secret shorter than 64 bytes prevents startup.
+- The login rate limiter is in-memory and per service instance; it is not shared across replicas and resets on restart.
+- Logout is an audit event only. Existing tokens remain usable until expiry.
+- Kafka delivery is not guaranteed without an outbox.
+- HTTP and Kafka use plaintext in the provided Compose configuration; deploy behind appropriately secured network boundaries.
 
 ## Testing and coverage
 
-Run tests per service:
+Run unit tests without Docker:
 
 ```bash
-cd user-service
-./mvnw -B test
+cd user-service && ./mvnw -B test
+cd journal-service && ./mvnw -B test
 ```
+
+On Windows use `.\mvnw.cmd -B test`. `verify` runs unit tests, any `*IT.java` tests registered with Maven Failsafe, and the JaCoCo report/check:
 
 ```bash
-cd journal-service
-./mvnw -B test
+cd user-service && ./mvnw -B verify
+cd journal-service && ./mvnw -B verify
 ```
 
-On Windows, use `.\mvnw.cmd` instead of `./mvnw`. To run Maven's verify lifecycle and generate the configured JaCoCo reports, run:
-
-```bash
-cd user-service
-./mvnw -B verify
-```
-
-```bash
-cd journal-service
-./mvnw -B verify
-```
-
-JaCoCo report location in each service: `target/site/jacoco/index.html`. The current POMs configure the JaCoCo agent and report but do not configure a coverage check or minimum threshold. The requested build target is 80% line coverage on the bundle, excluding DTO, entity, modal, config, and application classes; that check is not active until the POMs are updated.
-
-Existing tests are `UserOperationsTests` and `UserServiceApplicationTests` in user-service, and an empty `JournalServiceApplicationTests` class in journal-service. The Dockerfiles build with tests skipped; run the Maven commands above to execute tests.
-
-## Publishing and releasing images
-
-Publish images through CI rather than building and pushing them by hand. For deployments, set `IMAGE_TAG` to the release tag rather than relying on `latest`.
+Docker is required for Testcontainers integration tests. No `*IT.java` integration scenarios are currently present, so the current `verify` runs the unit suites only. JaCoCo reports are written to `target/site/jacoco/index.html`. Current measured line coverage after excluding DTO, entity, modal, config, and application classes is 28.77% for user-service and 36.87% for journal-service. The verified JaCoCo check minimums are 27% and 36%, respectively.
 
 ## Troubleshooting
 
-| Symptom | Check or action |
+| Symptom | Check |
 |---|---|
-| Compose reports a required variable is empty or missing | Check the root `.env` values used by Compose, especially database passwords, `JWT_SECRET`, and `JOURNAL_ADMIN_PASSWORD`. |
-| Service fails to connect to MySQL or MongoDB | Check container health and credentials. Database initialization scripts run only when the corresponding data volume is empty; changing credentials may require a deliberate data reset. |
-| MongoDB URI authentication fails | Check `MONGO_APP_PASSWORD`, `authSource=journaldb`, and URI-safe characters in the password. |
-| Kafka client cannot connect | Use `localhost:29092` for host-run services and `kafka:9092` for Compose services. Confirm both services use the same Kafka cluster and `TOPIC_USER_CREATED`. |
-| Service container remains unhealthy | Inspect `docker compose logs <service>`. The configured health check requests `/actuator/health` without authentication, while the security configuration does not permit anonymous access to that endpoint. |
-| Swagger UI is unavailable | Set `SWAGGER_ENABLED=true` in `.env` for local host runs; it is disabled by default. The local Compose overlay enables it. |
-| JWT is rejected after changing the signing key | Set the same `JWT_SECRET` for both services and obtain a new token. The code uses HS512, which requires at least a 64-byte key. |
-| Host port is already in use | Stop the other mode or the conflicting process; the modes share fixed container names and ports. |
-| MySQL/MongoDB/Kafka data must be removed | Run `docker compose down -v` to remove Compose named volumes. This permanently deletes their persisted data. |
-| Image pull fails | Retry the pull and check Docker registry authentication and network/proxy connectivity. |
+| Compose reports a missing variable | Fill the root `.env`, especially database credentials, `JWT_SECRET`, and `ADMIN_PASSWORD`. |
+| A service cannot connect to a database | Check the service's database health, Compose network URL, and credentials. Initialization scripts run only on a fresh data volume. |
+| MongoDB authentication fails | Check `MONGO_APP_PASSWORD`, the `authSource=journaldb` URI, and URI-safe password characters. |
+| Kafka clients cannot connect | Host-run services use `localhost:29092`; containers use `kafka:9092`. Both services must share the same broker and topic. |
+| Maven wrapper cannot run on Linux/macOS | Ensure the wrapper executable bit is present; if needed, restore it with `git update-index --chmod=+x user-service/mvnw journal-service/mvnw`. |
+| Application startup rejects `JWT_SECRET` | Use a secret of at least 64 bytes and configure the same value in both services. |
 
-## Known limitations
+## Publishing
 
-- Compose publishes the application HTTP ports without a TLS configuration; the base file binds those ports on the host's default interfaces.
-- The local overlay binds database and Kafka host ports to loopback, but that does not change the application ports published by the base Compose file.
-- User-service defaults to `spring.jpa.hibernate.ddl-auto=update`; no database migration tool is configured in the POMs.
-- Kafka listeners use PLAINTEXT; no Kafka authentication or TLS is configured.
-- `TOPIC_USER_FAILED` is configured but unused. Producer failures are not routed to a separate topic, and the consumer has no dead-letter handling.
-- Journal records and account data have no retention or cleanup policy configured in the source files.
-- The user-service controller serializes `User` entities in its API responses, and the Kafka event nests that entity. The entity includes a password property; callers should not receive or publish that field.
-- user-service `updateUser` assigns a supplied password directly instead of BCrypt-encoding it. Do not use the update route to change passwords until this is corrected.
-- Logout clears the current request's security context but does not revoke stateless JWTs that were already issued.
-- Both actuator health checks call a protected endpoint without credentials, which can cause containers to fail their health checks.
-
-## Author
-
-**Sahil Sheikh** - [GitHub](https://github.com/sahilsheikh-dev)
+The base Compose file pulls prebuilt images. Publishing and release automation are not included in this repository; publish new service images through the project's release process, then select their tag with `IMAGE_TAG`.

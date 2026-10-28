@@ -239,21 +239,21 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <excludes>
+                                <exclude>**/dto/**</exclude>
+                                <exclude>**/entity/**</exclude>
+                                <exclude>**/modal/**</exclude>
+                                <exclude>**/config/**</exclude>
+                                <exclude>**/*Application</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
-                                    <excludes>
-                                        <exclude>**/dto/**</exclude>
-                                        <exclude>**/entity/**</exclude>
-                                        <exclude>**/modal/**</exclude>
-                                        <exclude>**/config/**</exclude>
-                                        <exclude>**/*Application</exclude>
-                                    </excludes>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.29</minimum>
+                                            <minimum>0.36</minimum>
                                         </limit>
                                     </limits>
                                 </rule>

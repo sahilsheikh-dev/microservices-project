@@ -1,318 +1,247 @@
 {
-	"info": {
-		"_postman_id": "f37d7f03-1150-4e7f-b289-8276d5bd90a6",
-		"name": "Microservices Collection",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "36771282"
-	},
-	"item": [
-		{
-			"name": "🔑 Auth",
-			"item": [
-				{
-					"name": "User Login",
-					"request": {
-						"auth": {
-							"type": "noauth"
-						},
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "// ADMIN LOGIN\r\n{\r\n    \"email\": \"admin@example.com\",\r\n    \"password\": \"admin123\"\r\n}\r\n\r\n// USER LOGIN\r\n// {\r\n//     \"email\": \"test@example.com\",\r\n//     \"password\": \"test123\"\r\n// }",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "http://localhost:8081/api/auth/login",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"auth",
-								"login"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "User Logout",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8081/api/auth/logout",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"auth",
-								"logout"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "👤 User Service",
-			"item": [
-				{
-					"name": "Create User (Register)",
-					"request": {
-						"auth": {
-							"type": "noauth"
-						},
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "// ADMIN ACCOUNT CREATION\r\n{\r\n    \"name\": \"Admin User\",\r\n    \"email\": \"admin@example.com\",\r\n    \"password\": \"admin123\",\r\n    \"roles\": \"ADMIN\"\r\n}\r\n\r\n// USER ACCOUNT CREATION\r\n// {\r\n//     \"name\": \"Test User\",\r\n//     \"email\": \"test@example.com\",\r\n//     \"password\": \"test123\",\r\n//     \"roles\": \"USER\"\r\n// }",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "http://localhost:8081/api/users",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"users"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get All Users (Admin Only)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8081/api/users",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"users"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get User By ID (Admin/User Self)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8081/api/users/8",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"users",
-								"8"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Update User (Admin Only)",
-					"request": {
-						"method": "PUT",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "// UPDATE ADMIN ACCOUNT CREATION\r\n{\r\n    \"name\": \"User\",\r\n    \"email\": \"user@example.com\",\r\n    \"password\": \"user123\",\r\n    \"roles\": \"USER\"\r\n}\r\n\r\n// UPDATE USER ACCOUNT CREATION\r\n// {\r\n//     \"name\": \"Test User\",\r\n//     \"email\": \"test@example.com\",\r\n//     \"password\": \"test123\",\r\n//     \"roles\": \"USER\"\r\n// }",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "http://localhost:8081/api/users/8",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"users",
-								"8"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Delete User (Admin Only)",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8081/api/users/1",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8081",
-							"path": [
-								"api",
-								"users",
-								"1"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "📖 Journal Service",
-			"item": [
-				{
-					"name": "Journal Login",
-					"request": {
-						"auth": {
-							"type": "noauth"
-						},
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "// ADMIN LOGIN - THIS WILL SUCCESSFULLY WORK\r\n{\r\n    \"email\": \"admin@example.com\",\r\n    \"password\": \"admin123\"\r\n}\r\n\r\n// USER LOGIN - THIS WILL FAILED AS WE ONLY HAVE ADMIN USER IN THE MEMORY OF JOURNAL SERVICE\r\n// {\r\n//     \"email\": \"test@example.com\",\r\n//     \"password\": \"test123\"\r\n// }",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "http://localhost:8082/api/auth/login",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8082",
-							"path": [
-								"api",
-								"auth",
-								"login"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get All Journals (Admin Only)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8082/api/journals",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8082",
-							"path": [
-								"api",
-								"journals"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Journal By ID (Admin Only)",
-					"request": {
-						"method": "GET",
-						"header": []
-					},
-					"response": []
-				}
-			],
-			"event": [
-				{
-					"listen": "prerequest",
-					"script": {
-						"type": "text/javascript",
-						"packages": {},
-						"exec": [
-							""
-						]
-					}
-				},
-				{
-					"listen": "test",
-					"script": {
-						"type": "text/javascript",
-						"packages": {},
-						"exec": [
-							""
-						]
-					}
-				}
-			]
-		}
-	],
-	"auth": {
-		"type": "bearer",
-		"bearer": [
-			{
-				"key": "token",
-				"value": "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlcyI6WyJST0xFX0FETUlOIl0sImVtYWlsIjoiYWRtaW5AZXhhbXBsZS5jb20iLCJzdWIiOiIyIiwiaWF0IjoxNzQ0NDY5NDcyLCJleHAiOjE3NDQ0NzMwNzJ9.UnI5wFLD4SAbMO3rTKit6cLa-KEMAtzXJOd1yX7ljnBa_RfNnSFCP9qqpC8KaV75wE6VI1py2bq9BLrokiX2XQ",
-				"type": "string"
-			}
-		]
-	},
-	"event": [
-		{
-			"listen": "prerequest",
-			"script": {
-				"type": "text/javascript",
-				"packages": {},
-				"exec": [
-					""
-				]
-			}
-		},
-		{
-			"listen": "test",
-			"script": {
-				"type": "text/javascript",
-				"packages": {},
-				"exec": [
-					""
-				]
-			}
-		}
-	]
+  "info": {
+    "_postman_id": "f37d7f03-1150-4e7f-b289-8276d5bd90a6",
+    "name": "Microservices Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "userBaseUrl", "value": "http://localhost:8081" },
+    { "key": "journalBaseUrl", "value": "http://localhost:8082" },
+    { "key": "token", "value": "" },
+    { "key": "adminEmail", "value": "admin@example.com" },
+    { "key": "adminPassword", "value": "" },
+    { "key": "userEmail", "value": "postman-user@example.com" },
+    { "key": "userPassword", "value": "" },
+    { "key": "userName", "value": "Postman User" },
+    { "key": "userId", "value": "" },
+    { "key": "journalId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "User service",
+      "item": [
+        {
+          "name": "Service status",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{userBaseUrl}}/"
+          }
+        },
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{userBaseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "Register user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"registration creates a USER without exposing a password\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const user = pm.response.json();",
+                  "    pm.expect(user.roles).to.eql(\"USER\");",
+                  "    pm.expect(user).not.to.have.property(\"password\");",
+                  "    pm.collectionVariables.set(\"userId\", user.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"roles\": \"ADMIN\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{userBaseUrl}}/api/users"
+          }
+        },
+        {
+          "name": "Login as registered user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"login returns a bearer token\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.accessToken).to.be.a(\"string\").and.not.empty;",
+                  "    pm.collectionVariables.set(\"token\", response.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{userBaseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "url": "{{userBaseUrl}}/api/users/me"
+          }
+        },
+        {
+          "name": "Get user by ID (self)",
+          "request": {
+            "method": "GET",
+            "url": "{{userBaseUrl}}/api/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Login as administrator",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"login returns a bearer token\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.accessToken).to.be.a(\"string\").and.not.empty;",
+                  "    pm.collectionVariables.set(\"token\", response.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{userBaseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "url": "{{userBaseUrl}}/api/users?page=0&size=20&sort=userId,asc"
+          }
+        },
+        {
+          "name": "Get user by ID (administrator)",
+          "request": {
+            "method": "GET",
+            "url": "{{userBaseUrl}}/api/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Update user",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\",\n  \"roles\": \"USER\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{userBaseUrl}}/api/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "url": "{{userBaseUrl}}/api/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{userBaseUrl}}/api/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Journal service",
+      "item": [
+        {
+          "name": "Service status",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{journalBaseUrl}}/"
+          }
+        },
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{journalBaseUrl}}/actuator/health"
+          }
+        },
+        {
+          "name": "List journals",
+          "request": {
+            "method": "GET",
+            "url": "{{journalBaseUrl}}/api/journals?page=0&size=20&sort=operationTime,desc"
+          }
+        },
+        {
+          "name": "List journals by user ID",
+          "request": {
+            "method": "GET",
+            "url": "{{journalBaseUrl}}/api/journals/user/{{userId}}?page=0&size=20&sort=operationTime,desc"
+          }
+        },
+        {
+          "name": "Get journal by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{journalBaseUrl}}/api/journals/{{journalId}}"
+          }
+        },
+        {
+          "name": "Delete journal",
+          "request": {
+            "method": "DELETE",
+            "url": "{{journalBaseUrl}}/api/journals/{{journalId}}"
+          }
+        }
+      ]
+    }
+  ]
 }
