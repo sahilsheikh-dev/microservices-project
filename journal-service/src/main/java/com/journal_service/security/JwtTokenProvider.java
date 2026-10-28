@@ -12,18 +12,25 @@ import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
 
     private final String jwtSecret;
     private final long jwtExpirationInMs;
+    private final String issuer;
 
     public JwtTokenProvider(
             @Value("${app.jwt.secret}") String jwtSecret,
-            @Value("${app.jwt.expiration-in-ms}") long jwtExpirationInMs) {
+            @Value("${app.jwt.expiration-in-ms}") long jwtExpirationInMs,
+            @Value("${app.jwt.issuer:user-service}") String issuer) {
+        if (jwtSecret.getBytes(StandardCharsets.UTF_8).length < 64) {
+            throw new IllegalArgumentException("JWT_SECRET must be at least 64 bytes for HS512.");
+        }
         this.jwtSecret = jwtSecret;
         this.jwtExpirationInMs = jwtExpirationInMs;
+        this.issuer = issuer;
     }
 
     public String generateToken(Authentication authentication) {
@@ -40,6 +47,8 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .setSubject(String.valueOf(userPrincipal.getId()))
+                .setIssuer(issuer)
+                .setId(UUID.randomUUID().toString())
                 .addClaims(claims)
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
@@ -66,7 +75,8 @@ public class JwtTokenProvider {
             parseClaims(authToken);
             return true;
         } catch (JwtException ex) {
-            ex.printStackTrace();
+            return false;
+        } catch (IllegalArgumentException ex) {
             return false;
         }
     }
@@ -74,6 +84,7 @@ public class JwtTokenProvider {
     private Claims parseClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(jwtSecret.getBytes(StandardCharsets.UTF_8))
+                .requireIssuer(issuer)
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
