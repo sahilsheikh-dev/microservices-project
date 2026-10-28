@@ -32,9 +32,14 @@ public class JwtTokenProvider {
         if (jwtSecret.getBytes(StandardCharsets.UTF_8).length < 64) {
             throw new IllegalArgumentException("JWT_SECRET must be at least 64 bytes for HS512.");
         }
+
         this.jwtSecret = jwtSecret;
         this.jwtExpirationInMs = jwtExpirationInMs;
         this.issuer = issuer;
+    }
+
+    public long getExpirationInSeconds() {
+        return jwtExpirationInMs / 1000;
     }
 
     public String generateToken(Authentication authentication) {

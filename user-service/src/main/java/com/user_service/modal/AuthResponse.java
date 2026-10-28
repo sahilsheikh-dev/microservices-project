@@ -1,18 +1,16 @@
 package com.user_service.modal;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 
 @Data
-@AllArgsConstructor
-@RequiredArgsConstructor
 public class AuthResponse {
     private String accessToken;
     private String tokenType = "Bearer";
+    private long expiresIn;
 
-    public AuthResponse(String accessToken) {
+    public AuthResponse(String accessToken, long expiresIn) {
         this.accessToken = accessToken;
+        this.expiresIn = expiresIn;
     }
 
 }
