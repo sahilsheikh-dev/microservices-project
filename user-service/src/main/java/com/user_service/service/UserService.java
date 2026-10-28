@@ -23,22 +23,32 @@ import java.util.Locale;
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserEventPublisher eventPublisher;
 
     public UserResponse createUser(UserCreateRequest request) {
-        String email = normalizeEmail(request.email());
-        if (userRepository.findByEmail(email).isPresent()) {
-            throw new ConflictException("An account with this email already exists.");
+        try {
+            String email = normalizeEmail(request.email());
+            if (userRepository.findByEmail(email).isPresent()) {
+                throw new ConflictException("An account with this email already exists.");
+            }
+            LocalDateTime now = LocalDateTime.now();
+            User user = User.builder()
+                    .name(request.name().trim())
+                    .email(email)
+                    .password(passwordEncoder.encode(request.password()))
+                    .roles(Role.USER.name())
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .build();
+            User saved = userRepository.save(user);
+            eventPublisher.publish("CREATE", "SUCCESS", "User created", saved.getUserId(),
+                    saved.getName(), saved.getEmail(), saved.getRoles());
+            return UserResponse.from(saved);
+        } catch (RuntimeException ex) {
+            eventPublisher.publish("CREATE", "FAILURE", "Internal error", null,
+                    null, request.email(), null);
+            throw ex;
         }
-        LocalDateTime now = LocalDateTime.now();
-        User user = User.builder()
-                .name(request.name().trim())
-                .email(email)
-                .password(passwordEncoder.encode(request.password()))
-                .roles(Role.USER.name())
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
-        return UserResponse.from(userRepository.save(user));
     }
 
     public Page<User> getAllUsers(Pageable pageable) {
@@ -51,25 +61,41 @@ public class UserService {
     }
 
     public User updateUser(Long id, UserUpdateRequest request) {
-        User existing = getUserById(id);
-        if (request.name() != null) existing.setName(request.name().trim());
-        if (request.email() != null) {
-            String email = normalizeEmail(request.email());
-            userRepository.findByEmail(email)
-                    .filter(found -> found.getUserId() != id)
-                    .ifPresent(found -> { throw new ConflictException("An account with this email already exists."); });
-            existing.setEmail(email);
+        try {
+            User existing = getUserById(id);
+            if (request.name() != null) existing.setName(request.name().trim());
+            if (request.email() != null) {
+                String email = normalizeEmail(request.email());
+                userRepository.findByEmail(email)
+                        .filter(found -> found.getUserId() != id)
+                        .ifPresent(found -> { throw new ConflictException("An account with this email already exists."); });
+                existing.setEmail(email);
+            }
+            if (request.password() != null) existing.setPassword(passwordEncoder.encode(request.password()));
+            if (request.roles() != null) existing.setRoles(normalizeRole(request.roles()));
+            existing.setUpdatedAt(LocalDateTime.now());
+            User saved = userRepository.save(existing);
+            eventPublisher.publish("UPDATE", "SUCCESS", "User updated", saved.getUserId(),
+                    saved.getName(), saved.getEmail(), saved.getRoles());
+            return saved;
+        } catch (RuntimeException ex) {
+            eventPublisher.publish("UPDATE", "FAILURE", "Internal error", id,
+                    null, request.email(), null);
+            throw ex;
         }
-        if (request.password() != null) existing.setPassword(passwordEncoder.encode(request.password()));
-        if (request.roles() != null) existing.setRoles(normalizeRole(request.roles()));
-        existing.setUpdatedAt(LocalDateTime.now());
-        return userRepository.save(existing);
     }
 
     public User deleteUser(Long id) {
-        User user = getUserById(id);
-        userRepository.deleteById(id);
-        return user;
+        try {
+            User user = getUserById(id);
+            userRepository.deleteById(id);
+            eventPublisher.publish("DELETE", "SUCCESS", "User deleted", user.getUserId(),
+                    user.getName(), user.getEmail(), user.getRoles());
+            return user;
+        } catch (RuntimeException ex) {
+            eventPublisher.publish("DELETE", "FAILURE", "Internal error", id, null, null, null);
+            throw ex;
+        }
     }
 
     public User createBootstrapAdmin(String email, String password) {
@@ -78,7 +104,7 @@ public class UserService {
         String normalizedEmail = normalizeEmail(email);
         if (userRepository.findByEmail(normalizedEmail).isPresent()) return null;
         LocalDateTime now = LocalDateTime.now();
-        return userRepository.save(User.builder()
+        User admin = userRepository.save(User.builder()
                 .name("Admin")
                 .email(normalizedEmail)
                 .password(passwordEncoder.encode(password))
@@ -86,6 +112,9 @@ public class UserService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build());
+        eventPublisher.publish("CREATE", "SUCCESS", "Administrator bootstrapped", admin.getUserId(),
+                admin.getName(), admin.getEmail(), admin.getRoles());
+        return admin;
     }
 
     public static String normalizeEmail(String email) {

@@ -89,7 +89,6 @@ services:
       DDL_AUTO: ${USER_DDL_AUTO:-update}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TOPIC_USER_CREATED: user-events
-      TOPIC_USER_FAILED: user-operation-failed
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
       JWT_EXPIRATION: "3600000"
     healthcheck:

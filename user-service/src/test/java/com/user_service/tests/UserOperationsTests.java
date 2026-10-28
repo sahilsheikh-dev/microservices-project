@@ -6,6 +6,7 @@ import com.user_service.entity.User;
 import com.user_service.exception.ConflictException;
 import com.user_service.repository.UserRepository;
 import com.user_service.service.UserService;
+import com.user_service.service.UserEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -26,6 +27,8 @@ class UserOperationsTests {
     private UserRepository userRepository;
     @Mock
     private PasswordEncoder passwordEncoder;
+    @Mock
+    private UserEventPublisher eventPublisher;
     @InjectMocks
     private UserService userService;
 

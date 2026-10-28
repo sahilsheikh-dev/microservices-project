@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 public class CustomUserDetails implements UserDetails {
 
     private Long id;
+    private String name;
     private String email;
     private String password;
     private Collection<? extends GrantedAuthority> authorities;
@@ -33,6 +34,7 @@ public class CustomUserDetails implements UserDetails {
 
         return CustomUserDetails.builder()
                 .id(user.getUserId())
+                .name(user.getName())
                 .email(user.getEmail())
                 .password(user.getPassword())
                 .authorities(authorities)

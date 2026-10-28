@@ -1,12 +1,11 @@
 package com.user_service.controller;
 
-import com.user_service.entity.User;
 import com.user_service.modal.AuthRequest;
 import com.user_service.modal.AuthResponse;
 import com.user_service.modal.CustomUserDetails;
 import com.user_service.security.JwtTokenProvider;
-import com.user_service.service.KafkaProducerService;
 import com.user_service.service.LoginAttemptService;
+import com.user_service.service.UserEventPublisher;
 import com.user_service.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
-    private final KafkaProducerService kafkaProducerService;
+    private final UserEventPublisher eventPublisher;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
     private final LoginAttemptService loginAttemptService;
@@ -37,34 +36,27 @@ public class AuthController {
                     new UsernamePasswordAuthenticationToken(email, loginRequest.getPassword()));
         } catch (AuthenticationException ex) {
             loginAttemptService.recordFailure(email);
+            eventPublisher.publish("LOGIN", "FAILURE", "Invalid credentials", null, null, email, null);
             throw ex;
         }
 
         loginAttemptService.recordSuccess(email);
         String jwt = tokenProvider.generateToken(authentication);
         CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
-        User auditUser = User.builder()
-                .userId(principal.getId())
-                .email(principal.getEmail())
-                .roles(principal.getAuthorities().stream()
+        eventPublisher.publish("LOGIN", "SUCCESS", "User logged in", principal.getId(), principal.getName(),
+                principal.getEmail(), principal.getAuthorities().stream()
                         .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
-                        .findFirst().orElse("USER"))
-                .build();
-        kafkaProducerService.sendMessage("LOGIN", "SUCCESS", "User logged in successfully.", auditUser);
+                        .findFirst().orElse("USER"));
         return ResponseEntity.ok(new AuthResponse(jwt, tokenProvider.getExpirationInSeconds()));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(Authentication authentication) {
         CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
-        User auditUser = User.builder()
-                .userId(principal.getId())
-                .email(principal.getEmail())
-                .roles(principal.getAuthorities().stream()
+        eventPublisher.publish("LOGOUT", "SUCCESS", "User logged out", principal.getId(), principal.getName(),
+                principal.getEmail(), principal.getAuthorities().stream()
                         .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
-                        .findFirst().orElse("USER"))
-                .build();
-        kafkaProducerService.sendMessage("LOGOUT", "SUCCESS", "User logged out.", auditUser);
+                        .findFirst().orElse("USER"));
         return ResponseEntity.ok("Logout recorded. The token remains valid until it expires.");
     }
 }
