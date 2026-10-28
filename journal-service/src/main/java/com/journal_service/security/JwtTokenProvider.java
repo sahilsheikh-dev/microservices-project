@@ -1,89 +1,65 @@
 package com.journal_service.security;
 
-import com.journal_service.modal.CustomUserDetails;
-import io.jsonwebtoken.*;
-import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 
 @Component
 public class JwtTokenProvider {
-
-    private final String jwtSecret;
-    private final long jwtExpirationInMs;
+    private final byte[] signingKey;
     private final String issuer;
 
     public JwtTokenProvider(
             @Value("${app.jwt.secret}") String jwtSecret,
-            @Value("${app.jwt.expiration-in-ms}") long jwtExpirationInMs,
             @Value("${app.jwt.issuer:user-service}") String issuer) {
-        if (jwtSecret.getBytes(StandardCharsets.UTF_8).length < 64) {
+        this.signingKey = jwtSecret.getBytes(StandardCharsets.UTF_8);
+        if (signingKey.length < 64) {
             throw new IllegalArgumentException("JWT_SECRET must be at least 64 bytes for HS512.");
         }
-        this.jwtSecret = jwtSecret;
-        this.jwtExpirationInMs = jwtExpirationInMs;
         this.issuer = issuer;
     }
 
-    public String generateToken(Authentication authentication) {
-        CustomUserDetails userPrincipal = (CustomUserDetails) authentication.getPrincipal();
-
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
-
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("email", userPrincipal.getEmail());
-        claims.put("roles", userPrincipal.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .collect(Collectors.toList()));
-
-        return Jwts.builder()
-                .setSubject(String.valueOf(userPrincipal.getId()))
-                .setIssuer(issuer)
-                .setId(UUID.randomUUID().toString())
-                .addClaims(claims)
-                .setIssuedAt(now)
-                .setExpiration(expiryDate)
-                .signWith(getSigningKey(), SignatureAlgorithm.HS512)
-                .compact();
-    }
-
-    private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
-    }
-
-    public String getUsernameFromJWT(String token) {
-        Claims claims = parseClaims(token);
-        return claims.get("email", String.class);
+    public boolean validateToken(String token) {
+        try {
+            parseClaims(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     public Long getUserIdFromJWT(String token) {
-        Claims claims = parseClaims(token);
-        return Long.parseLong(claims.getSubject());
+        return Long.parseLong(parseClaims(token).getSubject());
     }
 
-    public boolean validateToken(String authToken) {
-        try {
-            parseClaims(authToken);
-            return true;
-        } catch (JwtException ex) {
-            return false;
-        } catch (IllegalArgumentException ex) {
-            return false;
+    public String getEmailFromJWT(String token) {
+        return parseClaims(token).get("email", String.class);
+    }
+
+    public List<String> getRolesFromJWT(String token) {
+        Object value = parseClaims(token).get("roles");
+        if (!(value instanceof List<?> values)) {
+            throw new IllegalArgumentException("JWT roles claim must be a list.");
         }
+        List<String> roles = new ArrayList<>(values.size());
+        for (Object role : values) {
+            if (!(role instanceof String stringRole) || stringRole.isBlank()) {
+                throw new IllegalArgumentException("JWT roles claim contains an invalid role.");
+            }
+            roles.add(stringRole);
+        }
+        return List.copyOf(roles);
     }
 
     private Claims parseClaims(String token) {
         return Jwts.parserBuilder()
-                .setSigningKey(jwtSecret.getBytes(StandardCharsets.UTF_8))
+                .setSigningKey(signingKey)
                 .requireIssuer(issuer)
                 .build()
                 .parseClaimsJws(token)

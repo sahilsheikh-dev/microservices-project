@@ -155,7 +155,6 @@
                     <environmentVariables>
                         <JWT_SECRET>test-secret-test-secret-test-secret-0123456789abcdef</JWT_SECRET>
                         <DB_URI>mongodb://localhost:27017/test</DB_URI>
-                        <ADMIN_PASSWORD>test</ADMIN_PASSWORD>
                     </environmentVariables>
                 </configuration>
             </plugin>

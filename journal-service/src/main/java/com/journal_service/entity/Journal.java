@@ -2,9 +2,10 @@ package com.journal_service.entity;
 
 import lombok.*;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Data
 @AllArgsConstructor
@@ -16,6 +17,9 @@ public class Journal {
     @Id
     private String id;
 
+    @Indexed(unique = true, sparse = true)
+    private String eventId;
+    @Indexed
     private Long userId;
     private String userName;
     private String userEmail;
@@ -23,7 +27,8 @@ public class Journal {
     private String status;
     private String comment;
     private String operation;
-    private LocalDateTime operationTime;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    @Indexed
+    private Instant operationTime;
+    private Instant createdAt;
+    private Instant updatedAt;
 }
