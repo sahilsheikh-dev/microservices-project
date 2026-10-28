@@ -4,18 +4,66 @@ The project contains two Spring Boot services. `user-service` stores accounts in
 
 ## Architecture and authentication
 
-```text
-Client --REST/JWT--> user-service --MySQL
-                          |
-                          +-- Kafka: user-events --journal-service --MongoDB
+The application follows a small event-driven microservice design with a single source of truth for identity and a downstream read model for journaling.
+
+```mermaid
+flowchart LR
+    Client[Client / Browser / Postman] -->|HTTPS + JWT| UserAPI[user-service\nREST API]
+    UserAPI -->|JPA / SQL| UserDB[(MySQL\nuser database)]
+    UserAPI -->|Publish events| Kafka[(Kafka\nuser-events topic)]
+    Kafka -->|Consume events| JournalAPI[journal-service\nREST API]
+    JournalAPI -->|MongoDB queries| JournalDB[(MongoDB\njournal database)]
+
+    subgraph UserService["user-service"]
+        AuthController[Auth + User controllers]
+        UserServiceLogic[Business services]
+        UserRepo[Repository / JPA]
+        EventPublisher[Kafka event publisher]
+        AuthController --> UserServiceLogic
+        UserServiceLogic --> UserRepo
+        UserServiceLogic --> EventPublisher
+    end
+
+    subgraph JournalService["journal-service"]
+        JournalController[Journal controllers]
+        JournalServiceLogic[Journal service]
+        JournalRepo[Mongo repository]
+        KafkaConsumer[Kafka consumer]
+        JournalController --> JournalServiceLogic
+        JournalServiceLogic --> JournalRepo
+        KafkaConsumer --> JournalServiceLogic
+    end
+
+    UserAPI --> AuthController
+    JournalAPI --> JournalController
 ```
 
-There is no API gateway. `user-service` is the only token issuer. Tokens use HS512 and contain the user ID as `sub`, plus `email`, `roles`, `iss`, `iat`, `exp`, and `jti`. Both services validate the signature and issuer using the same `JWT_SECRET`. The secret must contain at least 64 bytes.
+### Service responsibilities
 
-Public registration always creates a `USER`. An `ADMIN` is created at user-service startup only when both `ADMIN_EMAIL` and `ADMIN_PASSWORD` are non-blank and no administrator exists. An administrator can also assign roles through `PUT /api/users/{id}`. Journal endpoints require an `ADMIN` token.
+- `user-service` is the primary entry point for all user management and authentication. It exposes login, registration, profile, role-management, and admin endpoints.
+- `journal-service` is a consumer-driven read model. It does not issue tokens, and it does not own user credentials. It validates JWTs and stores audit/journal records coming from Kafka.
+- `Kafka` is the integration layer between the two services. When a user operation is created or modified, `user-service` publishes an event and `journal-service` consumes it to maintain a mirrored journal record set.
+- MySQL holds the canonical user account state; MongoDB stores the operational journal used by the journaling API.
 
-Logout records a `LOGOUT` event but does not revoke the JWT. It remains valid until its expiration time.
+### Authentication model
 
+There is no API gateway. `user-service` is the only token issuer. Tokens use HS512 and include the user ID in `sub`, plus `email`, `roles`, `iss`, `iat`, `exp`, and `jti`. Both services validate the signature and issuer using the same `JWT_SECRET`. The secret must contain at least 64 bytes.
+
+Authentication flow:
+
+1. A client sends credentials to `POST /api/auth/login` on `user-service`.
+2. `user-service` verifies the password and creates a JWT signed with the shared secret.
+3. The client includes the JWT in the `Authorization: Bearer <token>` header for protected requests.
+4. `user-service` and `journal-service` both validate the token before allowing access to protected routes.
+5. Role-based access is enforced using the `roles` claim, with `ADMIN` required for user administration and journal API access.
+
+### User and role rules
+
+- Public registration always creates a `USER`.
+- An `ADMIN` is created at `user-service` startup only when both `ADMIN_EMAIL` and `ADMIN_PASSWORD` are non-blank and no administrator exists.
+- An administrator can also assign roles through `PUT /api/users/{id}`.
+- Journal endpoints require an `ADMIN` token.
+- Logout records a `LOGOUT` event but does not revoke the JWT. The token remains valid until its expiration time.
 ## Technology
 
 | Component | Implementation |
@@ -168,7 +216,7 @@ Base URL: `http://localhost:8081`
 | `GET` | `/api/users` | `ADMIN` | Paginated user list. |
 | `GET` | `/api/users/me` | Authenticated | Returns the current account. |
 | `GET` | `/api/users/{id}` | `ADMIN` or that user | Returns one account. |
-| `PUT` | `/api/users/{id}` | `ADMIN` | Updates account fields; roles, when supplied, must be `USER` or `ADMIN`. `email` is currently required by request validation. |
+| `PUT` | `/api/users/{id}` | `ADMIN` | Updates account fields; all fields are optional, and supplied roles must be `USER` or `ADMIN`. |
 | `DELETE` | `/api/users/{id}` | `ADMIN` | Deletes the account. |
 
 User responses contain `id`, `name`, `email`, `roles`, `createdAt`, and `updatedAt`; they never contain passwords.
@@ -253,3 +301,5 @@ Docker is required for Testcontainers integration tests. No `*IT.java` integrati
 ## Publishing
 
 The base Compose file pulls prebuilt images. Publishing and release automation are not included in this repository; publish new service images through the project's release process, then select their tag with `IMAGE_TAG`.
+
+
