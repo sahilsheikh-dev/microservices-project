@@ -1,86 +1,62 @@
 package com.user_service.controller;
 
-import com.user_service.entity.User;
 import com.user_service.modal.AuthRequest;
 import com.user_service.modal.AuthResponse;
 import com.user_service.modal.CustomUserDetails;
-import com.user_service.repository.UserRepository;
 import com.user_service.security.JwtTokenProvider;
-import com.user_service.service.KafkaProducerService;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.user_service.service.LoginAttemptService;
+import com.user_service.service.UserEventPublisher;
+import com.user_service.service.UserService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/auth")
+@RequiredArgsConstructor
 public class AuthController {
-
-    @Autowired
-    private KafkaProducerService kafkaProducerService;
-    @Autowired
-    private UserRepository userRepository;
-
+    private final UserEventPublisher eventPublisher;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
-
-    public AuthController(AuthenticationManager authenticationManager, JwtTokenProvider tokenProvider) {
-        this.authenticationManager = authenticationManager;
-        this.tokenProvider = tokenProvider;
-    }
+    private final LoginAttemptService loginAttemptService;
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> authenticateUser(@RequestBody AuthRequest loginRequest) {
+    public ResponseEntity<AuthResponse> authenticateUser(@Valid @RequestBody AuthRequest loginRequest) {
+        String email = UserService.normalizeEmail(loginRequest.getEmail());
+        loginAttemptService.checkAllowed(email);
+
+        Authentication authentication;
         try {
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            loginRequest.getEmail(),
-                            loginRequest.getPassword()
-                    )
-            );
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            String jwt = tokenProvider.generateToken(authentication);
-
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-            User user = userRepository.findById(userDetails.getId())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userDetails.getId()));
-
-            kafkaProducerService.sendMessage("LOGIN", "SUCCESS", "User logged in successfully.", user);
-
-            return ResponseEntity.ok(new AuthResponse(jwt));
-        } catch (Exception ex) {
-            userRepository.findByEmail(loginRequest.getEmail()).ifPresent(
-                    user -> kafkaProducerService.sendMessage("LOGIN", "FAILURE", ex.getMessage(), user)
-            );
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(email, loginRequest.getPassword()));
+        } catch (AuthenticationException ex) {
+            loginAttemptService.recordFailure(email);
+            eventPublisher.publish("LOGIN", "FAILURE", "Invalid credentials", null, null, email, null);
             throw ex;
         }
+
+        loginAttemptService.recordSuccess(email);
+        String jwt = tokenProvider.generateToken(authentication);
+        CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
+        eventPublisher.publish("LOGIN", "SUCCESS", "User logged in", principal.getId(), principal.getName(),
+                principal.getEmail(), principal.getAuthorities().stream()
+                        .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
+                        .findFirst().orElse("USER"));
+        return ResponseEntity.ok(new AuthResponse(jwt, tokenProvider.getExpirationInSeconds()));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(Authentication authentication) {
-        User user = new User();
-        if (authentication != null && authentication.getPrincipal() instanceof CustomUserDetails userDetails) {
-            user.setUserId(userDetails.getId());
-            user.setName(userDetails.getUsername());
-            user.setEmail(userDetails.getEmail());
-        }
-        try {
-            kafkaProducerService.sendMessage("LOGOUT", "SUCCESS", "User logged out successfully.", user);
-            SecurityContextHolder.clearContext();
-            return ResponseEntity.ok("You have been successfully logged out.");
-        } catch (Exception ex) {
-            kafkaProducerService.sendMessage("LOGOUT", "FAILURE", ex.getMessage(), user);
-            throw ex;
-        }
+        CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
+        eventPublisher.publish("LOGOUT", "SUCCESS", "User logged out", principal.getId(), principal.getName(),
+                principal.getEmail(), principal.getAuthorities().stream()
+                        .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
+                        .findFirst().orElse("USER"));
+        return ResponseEntity.ok("Logout recorded. The token remains valid until it expires.");
     }
-
 }
