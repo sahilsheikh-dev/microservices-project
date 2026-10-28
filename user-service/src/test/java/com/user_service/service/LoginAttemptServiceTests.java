@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LoginAttemptServiceTests {
     @Test
-    void checkAllowed_fifthFailure_blocksUntilWindowExpires() {
+    void checkAllowed_fiveFailures_allowsFifthAttemptAndBlocksSixthUntilWindowExpires() {
         AtomicLong time = new AtomicLong();
         Ticker ticker = new Ticker() {
             @Override
@@ -21,9 +21,11 @@ class LoginAttemptServiceTests {
             }
         };
         LoginAttemptService attempts = new LoginAttemptService(ticker);
-        for (int attempt = 0; attempt < 5; attempt++) {
+        for (int attempt = 0; attempt < 4; attempt++) {
             attempts.recordFailure(" USER@example.com ");
         }
+        assertThatCode(() -> attempts.checkAllowed("user@example.com")).doesNotThrowAnyException();
+        attempts.recordFailure("user@example.com");
 
         assertThatThrownBy(() -> attempts.checkAllowed("user@example.com"))
                 .isInstanceOf(TooManyAttemptsException.class);
@@ -32,7 +34,7 @@ class LoginAttemptServiceTests {
     }
 
     @Test
-    void recordSuccess_clearsFailures() {
+    void recordSuccess_fivePriorFailures_allowsNextAttempt() {
         LoginAttemptService attempts = new LoginAttemptService(new Ticker() {
             @Override
             public long read() {
