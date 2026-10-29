@@ -106,6 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       security-events: write
     steps:
       - uses: actions/checkout@v4
@@ -155,19 +156,19 @@ jobs:
           exit-code: "0"
       - name: Upload filesystem SARIF
         if: always() && github.actor != 'dependabot[bot]' && hashFiles('trivy-fs.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-filesystem
       - name: Upload user-service SARIF
         if: always() && github.actor != 'dependabot[bot]' && hashFiles('trivy-user-service.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-user-service.sarif
           category: trivy-user-service
       - name: Upload journal-service SARIF
         if: always() && github.actor != 'dependabot[bot]' && hashFiles('trivy-journal-service.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-journal-service.sarif
           category: trivy-journal-service
