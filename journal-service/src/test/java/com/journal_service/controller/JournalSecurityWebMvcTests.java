@@ -20,20 +20,26 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.test.web.servlet.MockMvc;
+import org.mockito.ArgumentCaptor;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = JournalController.class, properties = {
+@WebMvcTest(controllers = JournalController.class, excludeAutoConfiguration = UserDetailsServiceAutoConfiguration.class,
+        properties = {
         "app.jwt.secret=0123456789012345678901234567890123456789012345678901234567890123",
         "app.jwt.issuer=user-service"
 })
@@ -77,6 +83,56 @@ class JournalSecurityWebMvcTests {
     @Test
     void health_actuatorEndpoint_isPublic() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
+    void journalWriteMethods_areUnavailableToAdminsAndRequireAuthentication() throws Exception {
+        mockMvc.perform(post("/api/journals").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/journals/abc").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+
+        String admin = bearer(1L, "admin@example.com", "ADMIN");
+        mockMvc.perform(post("/api/journals").header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(put("/api/journals/abc").header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        verifyNoInteractions(journalService);
+    }
+
+    @Test
+    void journalLists_defaultToTwenty_capAtOneHundred_andRejectNegativePages() throws Exception {
+        String admin = bearer(1L, "admin@example.com", "ADMIN");
+        when(journalService.getAllJournals(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(journalService.getJournalsByUserId(eq(12L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        mockMvc.perform(get("/api/journals").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/journals?size=101").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/journals?size=101&page=-1").header("Authorization", admin))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<Pageable> allPages = ArgumentCaptor.forClass(Pageable.class);
+        verify(journalService, times(2)).getAllJournals(allPages.capture());
+        assertThat(allPages.getAllValues().get(0).getPageNumber()).isZero();
+        assertThat(allPages.getAllValues().get(0).getPageSize()).isEqualTo(20);
+        assertThat(allPages.getAllValues().get(1).getPageSize()).isEqualTo(100);
+
+        mockMvc.perform(get("/api/journals/user/12").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/journals/user/12?size=101").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/journals/user/12?page=-1").header("Authorization", admin))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<Pageable> userPages = ArgumentCaptor.forClass(Pageable.class);
+        verify(journalService, times(2)).getJournalsByUserId(eq(12L), userPages.capture());
+        assertThat(userPages.getAllValues().get(0).getPageNumber()).isZero();
+        assertThat(userPages.getAllValues().get(0).getPageSize()).isEqualTo(20);
+        assertThat(userPages.getAllValues().get(1).getPageSize()).isEqualTo(100);
     }
 
     private String bearer(long id, String email, String role) {

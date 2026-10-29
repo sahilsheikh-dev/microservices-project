@@ -287,7 +287,9 @@ cd user-service && ./mvnw -B verify
 cd journal-service && ./mvnw -B verify
 ```
 
-Docker is required for Testcontainers integration tests. No `*IT.java` integration scenarios are currently present, so the current `verify` runs the unit suites only. JaCoCo reports are written to `target/site/jacoco/index.html`. Current measured line coverage after excluding DTO, entity, modal, config, and application classes is 28.77% for user-service and 36.87% for journal-service. The verified JaCoCo check minimums are 27% and 36%, respectively.
+Docker is required for the Failsafe `*IT.java` integration tests. Both services use the shared image tags in `test-fixtures/testcontainers.properties`, matching `docker-compose.yml`. Test forks clear `SPRING_CONFIG_IMPORT` so Maven verification does not load the repository's `.env`. JaCoCo reports are written to `target/site/jacoco/index.html`.
+
+Measured line coverage after excluding DTO, entity, modal, config, and application classes is 93.33% for user-service and 87.88% for journal-service. The verified JaCoCo minimums are 92% and 86%, respectively. The latest run passed 53 user-service unit tests and 5 integration tests, plus 37 journal-service unit tests and 4 integration tests.
 
 ## Troubleshooting
 
@@ -303,4 +305,3 @@ Docker is required for Testcontainers integration tests. No `*IT.java` integrati
 ## Publishing
 
 The base Compose file pulls prebuilt images. Publishing and release automation are not included in this repository; publish new service images through the project's release process, then select their tag with `IMAGE_TAG`.
-
