@@ -125,9 +125,9 @@ jobs:
         run: docker build -t local/user-service:${{ github.sha }} ./user-service
       - name: Build journal-service scan image
         run: docker build -t local/journal-service:${{ github.sha }} ./journal-service
-      # Trivy findings are report-only now; set exit-code to 1 after the Spring Boot patch upgrade.
+      # Trivy findings are report-only until the Spring Boot patch upgrade and the required verification are complete.
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -136,7 +136,7 @@ jobs:
           output: trivy-fs.sarif
           exit-code: "0"
       - name: Trivy user-service image scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: local/user-service:${{ github.sha }}
@@ -145,7 +145,7 @@ jobs:
           output: trivy-user-service.sarif
           exit-code: "0"
       - name: Trivy journal-service image scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: local/journal-service:${{ github.sha }}
@@ -154,19 +154,19 @@ jobs:
           output: trivy-journal-service.sarif
           exit-code: "0"
       - name: Upload filesystem SARIF
-        if: always()
+        if: always() && hashFiles('trivy-fs.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-filesystem
       - name: Upload user-service SARIF
-        if: always()
+        if: always() && hashFiles('trivy-user-service.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-user-service.sarif
           category: trivy-user-service
       - name: Upload journal-service SARIF
-        if: always()
+        if: always() && hashFiles('trivy-journal-service.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-journal-service.sarif
