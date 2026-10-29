@@ -167,6 +167,14 @@
     </dependencies>
 
     <build>
+        <testResources>
+            <testResource>
+                <directory>${project.basedir}/../test-fixtures</directory>
+                <includes>
+                    <include>testcontainers.properties</include>
+                </includes>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -185,6 +193,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <environmentVariables>
+                        <SPRING_CONFIG_IMPORT></SPRING_CONFIG_IMPORT>
                         <JWT_SECRET>test-secret-test-secret-test-secret-test-secret-test-secret-test-secret-test-secret</JWT_SECRET>
                         <DB_PASSWORD>test</DB_PASSWORD>
                     </environmentVariables>
@@ -203,6 +212,7 @@
                 </executions>
                 <configuration>
                     <environmentVariables>
+                        <SPRING_CONFIG_IMPORT></SPRING_CONFIG_IMPORT>
                         <JWT_SECRET>test-secret-test-secret-test-secret-test-secret-test-secret-test-secret-test-secret</JWT_SECRET>
                         <DB_PASSWORD>test</DB_PASSWORD>
                     </environmentVariables>
@@ -266,7 +276,7 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.89</minimum>
+                                            <minimum>0.92</minimum>
                                         </limit>
                                     </limits>
                                 </rule>

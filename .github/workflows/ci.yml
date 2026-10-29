@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - user-service
+          - journal-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ${{ matrix.service }}/pom.xml
+      - name: Verify
+        working-directory: ${{ matrix.service }}
+        run: ./mvnw -B verify
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-test-reports
+          if-no-files-found: warn
+          path: |
+            ${{ matrix.service }}/target/surefire-reports/
+            ${{ matrix.service }}/target/failsafe-reports/
+            ${{ matrix.service }}/target/site/jacoco/
+
+  e2e:
+    needs: unit-integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate CI-only environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
+            printf 'MYSQL_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+            printf 'MYSQL_APP_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+            printf 'MONGO_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+            printf 'MONGO_APP_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+            printf 'ADMIN_EMAIL=admin@example.com\n'
+            printf 'ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+          } > .env
+      - name: Start stack
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml up --build -d
+      - name: Wait for service health
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 240))
+          for service in user-service journal-service; do
+            while true; do
+              container_id="$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps -q "$service")"
+              health="missing"
+              if [[ -n "$container_id" ]]; then
+                health="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || echo missing)"
+              fi
+              if [[ "$health" == "healthy" ]]; then
+                echo "$service is healthy"
+                break
+              fi
+              if (( SECONDS >= deadline )); then
+                echo "Timed out waiting for $service health (last state: $health)"
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+      - name: Run end-to-end smoke test
+        run: bash scripts/smoke.sh
+      - name: Print Compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml logs --no-color || true
+      - name: Stop stack and remove generated environment
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.local.yml down -v || true
+          rm -f .env
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan pull-request commit range with Gitleaks
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/repo"
+          zricethezav/gitleaks:v8.30.1
+          git --redact --log-opts="${BASE_SHA}..${HEAD_SHA}" /repo
+      - name: Build user-service scan image
+        run: docker build -t local/user-service:${{ github.sha }} ./user-service
+      - name: Build journal-service scan image
+        run: docker build -t local/journal-service:${{ github.sha }} ./journal-service
+      # Trivy findings are report-only now; set exit-code to 1 after the Spring Boot patch upgrade.
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-fs.sarif
+          exit-code: "0"
+      - name: Trivy user-service image scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: image
+          image-ref: local/user-service:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-user-service.sarif
+          exit-code: "0"
+      - name: Trivy journal-service image scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: image
+          image-ref: local/journal-service:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-journal-service.sarif
+          exit-code: "0"
+      - name: Upload filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-filesystem
+      - name: Upload user-service SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-user-service.sarif
+          category: trivy-user-service
+      - name: Upload journal-service SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-journal-service.sarif
+          category: trivy-journal-service
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - unit-integration
+      - e2e
+      - security
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: user-service
+            image: user-service
+          - service: journal-service
+            image: journal-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derive semantic version from release tag
+        id: version
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            sahilsheikhdev/${{ matrix.image }}:${{ steps.version.outputs.version }}
+            sahilsheikhdev/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

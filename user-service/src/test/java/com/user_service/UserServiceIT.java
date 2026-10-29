@@ -28,10 +28,14 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
@@ -42,19 +46,25 @@ import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class UserServiceIT {
     private static final String TOPIC = "user-events";
+    private static final String SECRET = "0123456789012345678901234567890123456789012345678901234567890123";
+    private static final Properties CONTAINER_IMAGES = loadContainerImages();
 
-    @Container
-    static final MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0.36")
+    static final MySQLContainer<?> mysql = new MySQLContainer<>(DockerImageName.parse(
+            CONTAINER_IMAGES.getProperty("mysql.image")))
             .withDatabaseName("userdb")
             .withUsername("appuser")
             .withPassword("test-password");
 
-    @Container
-    static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.1"));
+    static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse(
+            CONTAINER_IMAGES.getProperty("kafka.image")));
+
+    static {
+        mysql.start();
+        kafka.start();
+    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -66,9 +76,21 @@ class UserServiceIT {
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
         registry.add("spring.kafka.bootstrap-servers", () -> bootstrapServers);
         registry.add("app.kafka.topic.userCreated", () -> TOPIC);
-        registry.add("app.jwt.secret", () -> "0123456789012345678901234567890123456789012345678901234567890123");
+        registry.add("app.jwt.secret", () -> SECRET);
         registry.add("app.bootstrap-admin.email", () -> "");
         registry.add("app.bootstrap-admin.password", () -> "");
+        registry.add("SWAGGER_ENABLED", () -> "true");
+    }
+
+    private static Properties loadContainerImages() {
+        try (InputStream input = UserServiceIT.class.getResourceAsStream("/testcontainers.properties")) {
+            if (input == null) throw new IllegalStateException("Missing shared Testcontainers image configuration.");
+            Properties images = new Properties();
+            images.load(input);
+            return images;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not load shared Testcontainers image configuration.", ex);
+        }
     }
 
     private static void createTopic(String bootstrapServers) {
@@ -96,6 +118,7 @@ class UserServiceIT {
     @Autowired
     private ObjectMapper objectMapper;
     private KafkaConsumer<String, String> kafkaConsumer;
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     @AfterEach
     void closeConsumer() {
@@ -136,6 +159,67 @@ class UserServiceIT {
         assertThat(event.path("operation").asText()).isEqualTo("CREATE");
         assertThat(event.path("userEmail").asText()).isEqualTo(email);
         assertThat(event.has("password")).isFalse();
+    }
+
+    @Test
+    void logout_requiresAuthentication() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/logout"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+    }
+
+    @Test
+    void apiDocsExposeBearerJwtSecurityScheme() {
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity(
+                "http://localhost:" + port + "/api-docs", JsonNode.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode bearer = response.getBody().path("components").path("securitySchemes").path("bearerAuth");
+        assertThat(bearer.path("type").asText()).isEqualTo("http");
+        assertThat(bearer.path("scheme").asText()).isEqualTo("bearer");
+        assertThat(bearer.path("bearerFormat").asText()).isEqualTo("JWT");
+    }
+
+    @Test
+    void loginWithWrongPassword_returnsUnauthorized() throws IOException, InterruptedException {
+        String email = registerUser();
+        assertThat(login(email, "wrong-password").statusCode()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+    }
+
+    @Test
+    void loginIsRateLimitedAfterFiveWrongPasswords() throws IOException, InterruptedException {
+        String email = registerUser();
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            assertThat(login(email, "wrong-password").statusCode()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        }
+        assertThat(login(email, "wrong-password").statusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    private String registerUser() {
+        String email = "integration-" + UUID.randomUUID() + "@example.com";
+        ResponseEntity<JsonNode> response = restTemplate.postForEntity(
+                "http://localhost:" + port + "/api/users",
+                new HttpEntity<>("{\"name\":\"Integration User\",\"email\":\"" + email
+                        + "\",\"password\":\"integration-password\"}", jsonHeaders()),
+                JsonNode.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return email;
+    }
+
+    private HttpResponse<String> login(String email, String password) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return headers;
     }
 
     private JsonNode receiveEvent() throws Exception {

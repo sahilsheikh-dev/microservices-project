@@ -167,6 +167,7 @@ docker compose up -d
 ```
 
 `IMAGE_TAG` selects the image version. Only one run mode can be active at a time because the modes share container names and host ports.
+The published multi-architecture images support Apple Silicon users running the Docker Hub mode.
 
 ### Everyday commands
 
@@ -287,7 +288,25 @@ cd user-service && ./mvnw -B verify
 cd journal-service && ./mvnw -B verify
 ```
 
-Docker is required for Testcontainers integration tests. No `*IT.java` integration scenarios are currently present, so the current `verify` runs the unit suites only. JaCoCo reports are written to `target/site/jacoco/index.html`. Current measured line coverage after excluding DTO, entity, modal, config, and application classes is 28.77% for user-service and 36.87% for journal-service. The verified JaCoCo check minimums are 27% and 36%, respectively.
+Docker is required for the Failsafe `*IT.java` integration tests. Both services use the shared image tags in `test-fixtures/testcontainers.properties`, matching `docker-compose.yml`. Test forks clear `SPRING_CONFIG_IMPORT` so Maven verification does not load the repository's `.env`. JaCoCo reports are written to `target/site/jacoco/index.html`.
+
+Measured line coverage after excluding DTO, entity, modal, config, and application classes is 93.33% for user-service and 87.88% for journal-service. The verified JaCoCo minimums are 92% and 86%, respectively. The latest run passed 53 user-service unit tests and 5 integration tests, plus 37 journal-service unit tests and 4 integration tests.
+
+## Continuous integration
+
+The GitHub Actions workflow runs the following checks on pull requests, pushes to `main` and `v*` release tags, and manual dispatch:
+
+- `unit-integration`: a Java 21 matrix runs `./mvnw -B verify` in each service and always uploads Surefire, Failsafe, and JaCoCo reports.
+- `e2e`: generates CI-only random credentials, builds and starts the local Compose stack, waits for both application health checks, and runs `bash scripts/smoke.sh`.
+- `security`: scans only the pull-request commit range with Gitleaks; Trivy scans the filesystem and both service images for HIGH and CRITICAL findings. Trivy results are report-only until the Spring Boot patch upgrade and are uploaded as SARIF.
+- `publish`: on `vMAJOR.MINOR.PATCH` tags, publishes both Docker Hub images for `linux/amd64` and `linux/arm64`, tagged with the semantic version and `latest`.
+
+Add these repository Actions secrets for releases:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+Manual setup: add the two Docker Hub secrets, then configure `main` branch protection to require `unit-integration (user-service)`, `unit-integration (journal-service)`, `e2e`, and `security`. To release, create and push an annotated `vMAJOR.MINOR.PATCH` tag; for example, `git tag -a v1.2.3 -m "Release v1.2.3"` followed by `git push origin v1.2.3`.
 
 ## Troubleshooting
 
@@ -302,5 +321,4 @@ Docker is required for Testcontainers integration tests. No `*IT.java` integrati
 
 ## Publishing
 
-The base Compose file pulls prebuilt images. Publishing and release automation are not included in this repository; publish new service images through the project's release process, then select their tag with `IMAGE_TAG`.
-
+The base Compose file pulls prebuilt images. CI publishes both images on semantic-version tags; select a published release with `IMAGE_TAG`.

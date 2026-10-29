@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -136,6 +138,23 @@ class UserSecurityWebMvcTests {
     @Test
     void health_actuatorEndpoint_isPublic() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
+    void userList_defaultSizeIsTwenty_sizeIsCappedAtOneHundred_andNegativePageIsRejected() throws Exception {
+        String admin = bearer(5L, "admin@example.com", "ADMIN");
+        mockMvc.perform(get("/api/users").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/users?size=101").header("Authorization", admin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/users?page=-1").header("Authorization", admin))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<Pageable> pages = ArgumentCaptor.forClass(Pageable.class);
+        verify(userService, times(2)).getAllUsers(pages.capture());
+        assertThat(pages.getAllValues().get(0).getPageNumber()).isZero();
+        assertThat(pages.getAllValues().get(0).getPageSize()).isEqualTo(20);
+        assertThat(pages.getAllValues().get(1).getPageSize()).isEqualTo(100);
     }
 
     private String bearer(long id, String email, String role) {
